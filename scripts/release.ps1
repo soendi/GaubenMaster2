@@ -22,7 +22,11 @@ if ((git rev-parse --abbrev-ref HEAD).Trim() -ne "master") {
 $versionFile = Join-Path $root "src\gaubenmaster\version.py"
 $content = Get-Content $versionFile -Raw
 $content = [regex]::Replace($content, '__version__\s*=\s*"[^"]+"', "__version__ = `"$Version`"")
-Set-Content -LiteralPath $versionFile -Value $content -Encoding utf8 -NoNewline
+[System.IO.File]::WriteAllText(
+    $versionFile,
+    $content,
+    (New-Object System.Text.UTF8Encoding -ArgumentList $false)
+)
 
 & py -3.12 scripts\check_version.py
 if ($LASTEXITCODE -ne 0) { throw "Versionsprüfung fehlgeschlagen." }

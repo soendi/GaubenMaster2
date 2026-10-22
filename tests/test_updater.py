@@ -1,9 +1,11 @@
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -19,6 +21,7 @@ from gaubenmaster.updater import (  # noqa: E402
     download_and_verify,
     fetch_latest_release,
     installer_filename,
+    launch_update_helper,
     parse_checksums,
     read_cache,
     save_cache,
@@ -351,6 +354,17 @@ class HelperTests(unittest.TestCase):
             text = helper.read_text(encoding="utf-8-sig")
             self.assertIn("Neustart deaktiviert", text)
             self.assertNotIn("Start-Process -FilePath 'app", text)
+
+    def test_launch_does_not_detach_powershell(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            installer = base / installer_filename("2.0.0")
+            installer.write_bytes(b"x")
+            with patch("gaubenmaster.updater.subprocess.Popen") as popen:
+                launch_update_helper(installer, base / "app.exe", 1, base)
+            flags = popen.call_args.kwargs.get("creationflags", 0)
+            if os.name == "nt":
+                self.assertEqual(flags & 0x00000008, 0)
 
 
 class CacheValidationTests(unittest.TestCase):

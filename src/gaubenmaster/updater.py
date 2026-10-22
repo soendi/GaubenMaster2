@@ -440,7 +440,7 @@ def launch_update_helper(
         powershell = Path("powershell.exe")
     flags = 0
     if os.name == "nt":
-        flags = 0x08000000 | 0x00000008  # CREATE_NO_WINDOW | DETACHED_PROCESS
+        flags = 0x08000000  # CREATE_NO_WINDOW, but keep the process attached
     subprocess.Popen(
         [
             str(powershell),
