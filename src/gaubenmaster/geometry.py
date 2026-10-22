@@ -285,8 +285,8 @@ def calculate_triangle(a: float, b: float, c: float) -> Triangle:
     if area < EPSILON:
         raise GeometryError("Die Seiten bilden kein Dreieck mit einer Flaeche.")
 
-    ax = (b * b + a * a - c * c) / (2.0 * a)
-    ay_square = b * b - ax * ax
+    ax = (c * c + a * a - b * b) / (2.0 * a)
+    ay_square = c * c - ax * ax
     if ay_square < -EPSILON:
         raise GeometryError("Die Seiten bilden kein gueltiges Dreieck.")
     ay = math.sqrt(max(0.0, ay_square))

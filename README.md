@@ -1,7 +1,7 @@
 # GaubenMaster2
 
 GaubenMaster2 berechnet und visualisiert Dreiecke für die Gaubenplanung.
-Dazu kommen Höhenteilung, Einzelteil-Listen und ein automatisches,
+Dazu kommen Höhenteilung, Einzelteil-Zeichnungen und ein automatisches,
 prüfsummengesichertes Update über GitHub Releases.
 
 ## Funktionen
@@ -9,16 +9,18 @@ prüfsummengesichertes Update über GitHub Releases.
 - Eingabe der Seiten `a`, `b`, `c` in cm mit Dezimalkomma oder Dezimalpunkt
 - Prüfung auf positive Seiten und die Dreiecksungleichung
 - Winkel, Fläche, Umfang, Höhen, Inkreis- und Umkreisradius
-- Interaktive Zeichnung: Drehen per Mauszug, Zoomen per Mausrad
+- Interaktive Zeichnung: Verschieben per Mauszug, Drehen mit Strg+Mauszug, Zoomen per Mausrad
 - Beschriftete Seiten, Eckpunkte, Winkel und Bounding-Boxen
 - Höhenteilung über `ha`, `hb` oder `hc`
 - Teilung in 2–20 gleiche Teile oder in Abschnitte à 0,1–50 cm
-- Farbige Einzelteile mit Fläche, Kantenlängen, Winkeln und Hover-Hervorhebung
+- Farbige Einzelteile mit Fläche, Kantenlängen und Hover-Hervorhebung
+- Scrollbare, bemaßte Zeichnung jedes Einzelteils mit Länge und Winkel
+- Doppelklick auf ein Einzelteil öffnet eine Großansicht im 250 × 250-Pixel-Fenster
 - Zuschnittangaben für Länge sowie vorderen und hinteren Falz
 - Update-Prüfung beim Start mit Benachrichtigung und stiller MSI-Installation
 - Einstellungen für Auto-Update, Prüfintervall und Repository-URL
 
-Die Fenstergröße startet mit 1400 × 900 Pixeln.
+Die Fenstergröße startet mit 1400 × 900 Pixeln; die linke Steuerspalte ist 220 Pixel breit.
 
 ## Technik
 
@@ -65,6 +67,7 @@ Installation fehl, rollt Windows Installer die Änderungen zurück.
 
 - `geometry.py`: validierte Dreiecksberechnung und Höhenteilung ohne UI
 - `plot.py`: interaktive Tkinter-Zeichenfläche und Hover-Erkennung
+- `partdraw.py`: scrollbare Einzelteil-Zeichnungen und Großansicht
 - `ui.py`: Fenster, Eingaben, Einzelteil-Seitenleiste, Einstellungen, Updates
 - `updater.py`: Release-Prüfung, Download, Prüfsumme und MSI-Installation
 - `paths.py`: Installations-, Daten- und Cache-Pfade

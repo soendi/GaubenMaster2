@@ -20,6 +20,7 @@ from .geometry import (
     Triangle,
     calculate_triangle,
 )
+from .partdraw import PartsList
 from .paths import (
     cache_file,
     data_dir,
@@ -29,7 +30,7 @@ from .paths import (
     save_settings,
     update_dir,
 )
-from .plot import TAB20, TriangleView
+from .plot import TriangleView
 from .updater import (
     REPO,
     UpdateError,
@@ -339,10 +340,11 @@ class App:
 
         outer = ttk.Frame(self.root, padding=(14, 12, 14, 8))
         outer.grid(row=0, column=0, sticky="nsew")
+        outer.columnconfigure(0, minsize=220)
         outer.columnconfigure(1, weight=1)
         outer.rowconfigure(0, weight=1)
 
-        self.left = ttk.Frame(outer, width=330)
+        self.left = ttk.Frame(outer, width=220)
         self.left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         self.left.grid_propagate(False)
         self.left.pack_propagate(False)
@@ -353,7 +355,7 @@ class App:
         center.columnconfigure(0, weight=1)
         ttk.Label(
             center,
-            text="Linke Maustaste ziehen = drehen   ·   Mausrad = zoomen",
+            text="Ziehen = verschieben   ·   Strg+Ziehen = drehen   ·   Mausrad = zoomen",
             foreground="#5b6878",
         ).grid(row=0, column=0, sticky="w", pady=(0, 6))
         self.view = TriangleView(center)
@@ -366,30 +368,13 @@ class App:
         self.parts_panel.rowconfigure(1, weight=1)
         self.hover_label = ttk.Label(
             self.parts_panel,
-            text="Maus über ein Teil bewegen",
+            text="Mausrad = scrollen · Doppelklick = Großansicht",
             foreground="#5b6878",
-            wraplength=290,
+            wraplength=340,
         )
         self.hover_label.grid(row=0, column=0, sticky="w", pady=(0, 6))
-        self.parts_text = tk.Text(
-            self.parts_panel,
-            width=38,
-            wrap="word",
-            relief="flat",
-            borderwidth=0,
-            background="#ffffff",
-            foreground="#243447",
-            font=("Consolas", 9),
-            padx=4,
-            pady=4,
-        )
-        self.parts_text.grid(row=1, column=0, sticky="nsew")
-        self.parts_text.configure(state="disabled")
-        scrollbar = ttk.Scrollbar(
-            self.parts_panel, orient="vertical", command=self.parts_text.yview
-        )
-        scrollbar.grid(row=1, column=1, sticky="ns")
-        self.parts_text.configure(yscrollcommand=scrollbar.set)
+        self.parts_list = PartsList(self.parts_panel)
+        self.parts_list.grid(row=1, column=0, sticky="nsew")
         self.parts_panel.grid_remove()
 
         self._build_left_panel()
@@ -428,7 +413,7 @@ class App:
         input_frame.columnconfigure(1, weight=1)
 
         self.validation = ttk.Label(
-            input_frame, text="", wraplength=285, justify="left"
+            input_frame, text="", wraplength=170, justify="left"
         )
         self.validation.grid(
             row=3, column=0, columnspan=3, sticky="w", pady=(8, 2)
@@ -533,7 +518,7 @@ class App:
             ).grid(row=index, column=1, sticky="e", pady=2)
             variable.trace_add("write", lambda *_args: self._schedule_height())
         self.height_status = ttk.Label(
-            height_frame, text="", foreground="#5b6878", wraplength=285
+            height_frame, text="", foreground="#5b6878", wraplength=170
         )
         self.height_status.grid(
             row=8, column=0, columnspan=2, sticky="w", pady=(6, 0)
@@ -666,7 +651,12 @@ class App:
             bool(self.height_var.get()),
         )
         self._show_parts_panel(bool(self.height_var.get()))
-        self._render_parts_text()
+        self.parts_list.set_data(
+            self.triangle,
+            self.parts,
+            self._height_name(),
+            self._extras(),
+        )
 
     def _height_toggle(self) -> None:
         self._rebuild_view()
@@ -701,56 +691,24 @@ class App:
             self.parts_panel.grid()
             outer = self.parts_panel.master
             if isinstance(outer, ttk.Frame):
-                outer.columnconfigure(2, weight=0, minsize=330)
+                outer.columnconfigure(2, weight=0, minsize=380)
         else:
             self.parts_panel.grid_remove()
             outer = self.parts_panel.master
             if isinstance(outer, ttk.Frame):
                 outer.columnconfigure(2, weight=0, minsize=0)
-            self.hover_label.configure(text="Maus über ein Teil bewegen")
-
-    def _render_parts_text(self) -> None:
-        self.parts_text.configure(state="normal")
-        self.parts_text.delete("1.0", "end")
-        if not self.height_var.get():
-            self.parts_text.insert("end", "Höhen-Teilung ist ausgeschaltet.")
-        elif not self.parts:
-            self.parts_text.insert("end", "Keine Teile berechnet.")
-        else:
-            extra_length, fold_front, fold_back = self._extras()
-            for part in self.parts:
-                color = TAB20[(part.index - 1) % len(TAB20)]
-                tag = f"part{part.index}"
-                self.parts_text.tag_configure(tag, foreground=color)
-                self.parts_text.insert("end", f"Teil {part.index}\n", tag)
-                self.parts_text.insert(
-                    "end",
-                    f"  Höhe:     {_format_number(part.height_cm)} cm\n"
-                    f"  Fläche:   {_format_number(part.area_cm2)} cm²\n"
-                    f"  Kanten:   "
-                    + " / ".join(_format_number(value) for value in part.edges_cm)
-                    + " cm\n"
-                    f"  Winkel:   "
-                    + " / ".join(
-                        f"{_format_number(value, 1)}°" for value in part.angles_deg
-                    )
-                    + "\n"
-                    f"  Zuschnitt: Länge {_format_number(part.height_cm + extra_length)} cm"
-                    f"  (Falz {_format_number(fold_front)} / {_format_number(fold_back)} cm)\n\n",
-                )
-        self.parts_text.configure(state="disabled")
-        self.parts_text.yview_moveto(0)
+            self.hover_label.configure(
+                text="Mausrad = scrollen · Doppelklick = Großansicht"
+            )
 
     def _on_part_hover(self, part: Part | None) -> None:
         if part is None:
-            self.hover_label.configure(text="Maus über ein Teil bewegen")
-            return
-        edges = " / ".join(_format_number(value) for value in part.edges_cm)
-        self.hover_label.configure(
-            text=(
-                f"Teil {part.index}: {_format_number(part.area_cm2)} cm² · "
-                f"Kanten {edges} cm"
+            self.hover_label.configure(
+                text="Mausrad = scrollen · Doppelklick = Großansicht"
             )
+            return
+        self.hover_label.configure(
+            text=f"Teil {part.index} · Doppelklick für Großansicht"
         )
 
     # ------------------------------------------------------------------ Reset
@@ -1075,11 +1033,14 @@ class App:
         messagebox.showinfo(
             "Hilfe",
             "Seiten a, b und c in cm eingeben und „Berechnen“ drücken.\n\n"
-            "Maus: Linke Taste ziehen = drehen, Mausrad = zoomen.\n"
+            "Maus: Linke Taste ziehen = verschieben, Strg+Ziehen = drehen, "
+            "Mausrad = zoomen.\n"
             "Tastatur: Enter oder F5 = berechnen, Strg+N = zurücksetzen.\n\n"
             "Höhen-Teilung: Höhe wählen, Modus festlegen und die Teilung "
-            "einschalten. Die Seitenleiste zeigt alle Einzelteile; im Plot "
-            "werden Kanten, Winkel und Flächen beschriftet.",
+            "einschalten. Die rechte Spalte zeigt jedes Einzelteil bemaßt "
+            "mit Länge und Winkel. Mausrad scrollt, Doppelklick öffnet die "
+            "Großansicht. Im Plot werden Seiten, Hauptwinkel, Kanten und "
+            "Flächen beschriftet.",
             parent=self.root,
         )
 

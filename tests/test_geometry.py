@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from gaubenmaster.geometry import (  # noqa: E402
     GeometryError,
     calculate_triangle,
+    distance,
     polygon_area,
     polygon_centroid,
 )
@@ -26,6 +27,13 @@ class TriangleTests(unittest.TestCase):
         self.assertAlmostEqual(triangle.alpha, 36.86989765, places=6)
         self.assertAlmostEqual(triangle.beta, 53.13010235, places=6)
         self.assertAlmostEqual(triangle.gamma, 90.0, places=9)
+
+    def test_vertices_match_named_side_lengths(self):
+        triangle = calculate_triangle(3, 4, 5)
+        vertices = triangle.vertices
+        self.assertAlmostEqual(distance(vertices[1], vertices[2]), triangle.a, places=9)
+        self.assertAlmostEqual(distance(vertices[2], vertices[0]), triangle.b, places=9)
+        self.assertAlmostEqual(distance(vertices[0], vertices[1]), triangle.c, places=9)
 
     def test_decimal_comma_is_not_part_of_geometry(self):
         triangle = calculate_triangle(3.0, 4.0, 5.0)

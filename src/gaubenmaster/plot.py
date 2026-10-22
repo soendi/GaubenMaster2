@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import tkinter as tk
+import tkinter.font as tkfont
 from typing import Callable
 
 from .geometry import Part, Point, Triangle
@@ -69,6 +70,166 @@ def point_in_polygon(point: Point, polygon: list[Point]) -> bool:
     return inside
 
 
+def _font_for(canvas: tk.Canvas, font: tuple) -> tkfont.Font:
+    root = canvas.winfo_toplevel()
+    cache = getattr(root, "_gm_font_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(root, "_gm_font_cache", cache)
+    key = tuple(font)
+    if key not in cache:
+        cache[key] = tkfont.Font(root=root, font=font)
+    return cache[key]
+
+
+def _ray_polygon_distance(
+    origin: Point,
+    direction: Point,
+    polygon: list[Point],
+    skip_index: int,
+) -> float:
+    count = len(polygon)
+    span = max(
+        max(point[0] for point in polygon) - min(point[0] for point in polygon),
+        max(point[1] for point in polygon) - min(point[1] for point in polygon),
+        1.0,
+    )
+    ray_length = span * 4.0
+    end = (
+        origin[0] + direction[0] * ray_length,
+        origin[1] + direction[1] * ray_length,
+    )
+    best = ray_length
+    for index in range(count):
+        if index == skip_index or (index + 1) % count == skip_index:
+            continue
+        x1, y1 = polygon[index]
+        x2, y2 = polygon[(index + 1) % count]
+        denominator = (end[0] - origin[0]) * (y2 - y1) - (end[1] - origin[1]) * (
+            x2 - x1
+        )
+        if abs(denominator) < 1e-9:
+            continue
+        t = ((x1 - origin[0]) * (y2 - y1) - (y1 - origin[1]) * (x2 - x1)) / denominator
+        u = ((x1 - origin[0]) * (end[1] - origin[1]) - (y1 - origin[1]) * (
+            end[0] - origin[0]
+        )) / denominator
+        if t > 1e-6 and -1e-9 <= u <= 1.0 + 1e-9:
+            best = min(best, ray_length * t)
+    return best
+
+
+def _fit_angle_label(
+    canvas: tk.Canvas,
+    polygon: list[Point],
+    index: int,
+    text: str,
+    font: tuple,
+) -> tuple[float, float, float]:
+    current = polygon[index]
+    previous = polygon[index - 1]
+    following = polygon[(index + 1) % len(polygon)]
+    v1 = (previous[0] - current[0], previous[1] - current[1])
+    v2 = (following[0] - current[0], following[1] - current[1])
+    angle1 = math.atan2(v1[1], v1[0])
+    angle2 = math.atan2(v2[1], v2[0])
+    delta = (angle2 - angle1 + math.pi) % (2.0 * math.pi) - math.pi
+    middle = angle1 + delta / 2.0
+    direction = (math.cos(middle), math.sin(middle))
+    ray_length = _ray_polygon_distance(current, direction, polygon, index)
+
+    measured = _font_for(canvas, font)
+    text_width = max(1, measured.measure(text))
+    text_height = max(1, measured.metrics("linespace"))
+    text_angle = math.degrees(middle)
+    if text_angle > 90.0:
+        text_angle -= 180.0
+    elif text_angle <= -90.0:
+        text_angle += 180.0
+    radians = math.radians(text_angle)
+    box_width = abs(text_width * math.cos(radians)) + abs(
+        text_height * math.sin(radians)
+    )
+    box_height = abs(text_width * math.sin(radians)) + abs(
+        text_height * math.cos(radians)
+    )
+
+    def fits(distance_along: float) -> bool:
+        center_x = current[0] + direction[0] * distance_along
+        center_y = current[1] + direction[1] * distance_along
+        half_width = max(0.5, box_width / 2.0 - 1.0)
+        half_height = max(0.5, box_height / 2.0 - 1.0)
+        corners = (
+            (center_x - half_width, center_y - half_height),
+            (center_x + half_width, center_y - half_height),
+            (center_x + half_width, center_y + half_height),
+            (center_x - half_width, center_y + half_height),
+        )
+        return all(point_in_polygon(corner, polygon) for corner in corners)
+
+    best = 0.0
+    steps = 48
+    previous = 0.0
+    for step in range(1, steps + 1):
+        distance_along = ray_length * step / steps
+        if fits(distance_along):
+            low = previous
+            high = distance_along
+            for _ in range(18):
+                middle_distance = (low + high) / 2.0
+                if fits(middle_distance):
+                    high = middle_distance
+                else:
+                    low = middle_distance
+            best = high
+            break
+        previous = distance_along
+    else:
+        best = min(ray_length * 0.55, max(10.0, text_width * 0.6))
+
+    center_x = current[0] + direction[0] * best
+    center_y = current[1] + direction[1] * best
+    return center_x, center_y, -text_angle
+
+
+def create_angle_label(
+    canvas: tk.Canvas,
+    polygon: list[Point],
+    index: int,
+    text: str,
+    font: tuple,
+    fill: str,
+    background: str | None = None,
+    tags: tuple[str, ...] = (),
+) -> None:
+    x, y, angle = _fit_angle_label(canvas, polygon, index, text, font)
+    identifier = canvas.create_text(
+        x,
+        y,
+        text=text,
+        fill=fill,
+        font=font,
+        angle=angle,
+        justify="center",
+        tags=tags,
+    )
+    if background is None:
+        return
+    box = canvas.bbox(identifier)
+    if not box:
+        return
+    rectangle = canvas.create_rectangle(
+        box[0] - 1,
+        box[1] - 1,
+        box[2] + 1,
+        box[3] + 1,
+        fill=background,
+        outline="",
+        tags=tags,
+    )
+    canvas.tag_lower(rectangle, identifier)
+
+
 class TriangleView(tk.Canvas):
     def __init__(self, master: tk.Misc, **kwargs) -> None:
         super().__init__(
@@ -84,11 +245,21 @@ class TriangleView(tk.Canvas):
         self.height_active = False
         self.rotation = 0.0
         self.zoom = 1.0
+        self.pan_x = 0.0
+        self.pan_y = 0.0
         self.hovered: int | None = None
         self.on_hover: Callable[[Part | None], None] | None = None
-        self._drag_x: int | None = None
+        self._drag_mode: str | None = None
+        self._drag_last: Point | None = None
+        self._drag_center: Point | None = None
+        self._drag_angle: float | None = None
         self._screen_parts: list[tuple[Part, list[Point]]] = []
-        self._transform: tuple[float, float, float, float, float] | None = None
+        self._labeled_edges: set[
+            tuple[tuple[float, float], tuple[float, float]]
+        ] = set()
+        self._transform: (
+            tuple[float, float, float, float, float, float, float] | None
+        ) = None
         self.bind("<Configure>", lambda _event: self.redraw())
         self.bind("<ButtonPress-1>", self._on_press)
         self.bind("<B1-Motion>", self._on_drag)
@@ -117,26 +288,55 @@ class TriangleView(tk.Canvas):
     def reset_view(self) -> None:
         self.rotation = 0.0
         self.zoom = 1.0
+        self.pan_x = 0.0
+        self.pan_y = 0.0
         self.redraw()
 
     def _on_press(self, event: tk.Event) -> None:
-        self._drag_x = event.x
-        self.configure(cursor="fleur")
+        self._drag_last = (event.x, event.y)
+        if event.state & 0x0004:
+            self._drag_mode = "rotate"
+            center = self._screen_center()
+            self._drag_center = center
+            self._drag_angle = math.atan2(event.y - center[1], event.x - center[0])
+            self.configure(cursor="crosshair")
+        else:
+            self._drag_mode = "pan"
+            self.configure(cursor="fleur")
 
     def _on_drag(self, event: tk.Event) -> None:
-        if self._drag_x is None:
+        if self._drag_mode is None or self._drag_last is None:
             return
-        delta = event.x - self._drag_x
-        self._drag_x = event.x
-        self.rotation = (self.rotation + delta * 0.45) % 360.0
+        if self._drag_mode == "pan":
+            self.pan_x += event.x - self._drag_last[0]
+            self.pan_y += event.y - self._drag_last[1]
+            self._drag_last = (event.x, event.y)
+        elif self._drag_center is not None:
+            angle = math.atan2(
+                event.y - self._drag_center[1], event.x - self._drag_center[0]
+            )
+            if self._drag_angle is not None:
+                delta = math.degrees(angle - self._drag_angle)
+                delta = (delta + 180.0) % 360.0 - 180.0
+                self.rotation = (self.rotation + delta) % 360.0
+            self._drag_angle = angle
         self.redraw()
 
     def _on_release(self, _event: tk.Event) -> None:
-        self._drag_x = None
+        self._drag_mode = None
+        self._drag_last = None
+        self._drag_center = None
+        self._drag_angle = None
         self.configure(cursor="")
 
+    def _screen_center(self) -> Point:
+        return (
+            self.winfo_width() / 2.0 + self.pan_x,
+            self.winfo_height() / 2.0 + self.pan_y,
+        )
+
     def _on_motion(self, event: tk.Event) -> None:
-        if self._drag_x is not None or not self._screen_parts:
+        if self._drag_mode is not None or not self._screen_parts:
             return
         found: int | None = None
         for part, polygon in reversed(self._screen_parts):
@@ -157,7 +357,7 @@ class TriangleView(tk.Canvas):
             if self.on_hover:
                 self.on_hover(None)
             self.redraw()
-        if self._drag_x is None:
+        if self._drag_mode is None:
             self.configure(cursor="")
 
     def _on_wheel(self, event: tk.Event) -> None:
@@ -197,20 +397,38 @@ class TriangleView(tk.Canvas):
         span_x = max(max_x - min_x, 1e-6)
         span_y = max(max_y - min_y, 1e-6)
         scale = min(width * 0.80 / span_x, height * 0.80 / span_y) * self.zoom
-        return center_x, center_y, cosine, sine, scale
+        bbox_center_x = (min_x + max_x) / 2.0
+        bbox_center_y = (min_y + max_y) / 2.0
+        return (
+            center_x,
+            center_y,
+            cosine,
+            sine,
+            scale,
+            bbox_center_x,
+            bbox_center_y,
+        )
 
     def _to_screen(self, point: Point) -> Point:
         if not self._transform:
             return point
-        center_x, center_y, cosine, sine, scale = self._transform
+        (
+            center_x,
+            center_y,
+            cosine,
+            sine,
+            scale,
+            bbox_center_x,
+            bbox_center_y,
+        ) = self._transform
         x, y = point
         dx = x - center_x
         dy = y - center_y
-        rotated_x = dx * cosine - dy * sine
-        rotated_y = dx * sine + dy * cosine
+        rotated_x = dx * cosine - dy * sine - bbox_center_x
+        rotated_y = dx * sine + dy * cosine - bbox_center_y
         return (
-            self.winfo_width() / 2.0 + rotated_x * scale,
-            self.winfo_height() / 2.0 - rotated_y * scale,
+            self.winfo_width() / 2.0 + self.pan_x + rotated_x * scale,
+            self.winfo_height() / 2.0 + self.pan_y - rotated_y * scale,
         )
 
     def _line(self, point1: Point, point2: Point) -> list[float]:
@@ -221,6 +439,7 @@ class TriangleView(tk.Canvas):
     def redraw(self) -> None:
         self.delete("all")
         self._screen_parts = []
+        self._labeled_edges = set()
         self._transform = self._build_transform()
         if not self.triangle:
             self.create_text(
@@ -265,7 +484,7 @@ class TriangleView(tk.Canvas):
         for part in self.parts:
             screen = [self._to_screen(point) for point in part.points]
             self._screen_parts.append((part, screen))
-            alpha = 1.0 if self.hovered in (None, part.index) else 0.5
+            alpha = 0.70 if self.hovered == part.index else 0.30
             color = TAB20[(part.index - 1) % len(TAB20)]
             fill = blend(color, alpha)
             outline = blend(color, alpha, "#12324f")
@@ -310,36 +529,48 @@ class TriangleView(tk.Canvas):
             justify="center",
         )
 
+        edge_font_size = max(8, math.ceil((font_size - 1) * 1.5))
         for index, edge in enumerate(part.edges_cm):
             p1 = screen[index]
             p2 = screen[(index + 1) % len(screen)]
+            key = tuple(
+                sorted(
+                    (
+                        (round(p1[0], 1), round(p1[1], 1)),
+                        (round(p2[0], 1), round(p2[1], 1)),
+                    )
+                )
+            )
+            if key in self._labeled_edges:
+                continue
+            dx = p2[0] - p1[0]
+            dy = p2[1] - p1[1]
+            length = math.hypot(dx, dy)
+            if length < 1.0:
+                continue
+            self._labeled_edges.add(key)
             midpoint = ((p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0)
-            dx = midpoint[0] - centroid[0]
-            dy = midpoint[1] - centroid[1]
-            length = math.hypot(dx, dy) or 1.0
-            offset = 8.0
+            normal_x = -dy / length
+            normal_y = dx / length
+            toward_x = centroid[0] - midpoint[0]
+            toward_y = centroid[1] - midpoint[1]
+            if normal_x * toward_x + normal_y * toward_y < 0:
+                normal_x = -normal_x
+                normal_y = -normal_y
+            offset = max(8.0, edge_font_size * 0.95)
+            text_angle = math.degrees(math.atan2(dy, dx))
+            if text_angle > 90.0:
+                text_angle -= 180.0
+            elif text_angle <= -90.0:
+                text_angle += 180.0
             self.create_text(
-                midpoint[0] + dx / length * offset,
-                midpoint[1] + dy / length * offset,
+                midpoint[0] + normal_x * offset,
+                midpoint[1] + normal_y * offset,
                 text=f"{edge:.2f}",
                 fill=label_color,
-                font=("Segoe UI", font_size - 1),
+                font=("Segoe UI", edge_font_size),
+                angle=-text_angle,
             )
-
-        if len(part.points) <= 4:
-            for index, angle in enumerate(part.angles_deg):
-                vertex = screen[index]
-                dx = centroid[0] - vertex[0]
-                dy = centroid[1] - vertex[1]
-                length = math.hypot(dx, dy) or 1.0
-                distance = 15.0 if len(self.parts) <= 8 else 11.0
-                self.create_text(
-                    vertex[0] + dx / length * distance,
-                    vertex[1] + dy / length * distance,
-                    text=f"{angle:.0f}°",
-                    fill=label_color,
-                    font=("Segoe UI", max(5, font_size - 2)),
-                )
 
     def _draw_height(self) -> None:
         if not self.triangle:
@@ -439,12 +670,12 @@ class TriangleView(tk.Canvas):
         if not self.triangle:
             return
         vertices = self.triangle.vertices
+        screen_vertices = [self._to_screen(point) for point in vertices]
         angles = (self.triangle.alpha, self.triangle.beta, self.triangle.gamma)
-        names = ("α", "β", "γ")
-        for index, (name, angle) in enumerate(zip(names, angles)):
-            current = self._to_screen(vertices[index])
-            previous = self._to_screen(vertices[index - 1])
-            following = self._to_screen(vertices[(index + 1) % 3])
+        for index, angle in enumerate(angles):
+            current = screen_vertices[index]
+            previous = screen_vertices[index - 1]
+            following = screen_vertices[(index + 1) % 3]
             v1 = (previous[0] - current[0], previous[1] - current[1])
             v2 = (following[0] - current[0], following[1] - current[1])
             length1 = math.hypot(*v1) or 1.0
@@ -457,17 +688,20 @@ class TriangleView(tk.Canvas):
             for step in range(17):
                 sample = angle1 + delta * step / 16.0
                 points.extend(
-                    (current[0] + math.cos(sample) * radius, current[1] + math.sin(sample) * radius)
+                    (
+                        current[0] + math.cos(sample) * radius,
+                        current[1] + math.sin(sample) * radius,
+                    )
                 )
             self.create_line(*points, fill=ANGLE, width=1.6)
-            middle = angle1 + delta / 2.0
-            label_radius = radius + 13.0
-            self._text_with_background(
-                current[0] + math.cos(middle) * label_radius,
-                current[1] + math.sin(middle) * label_radius,
-                f"{name} {angle:.1f}°",
+            create_angle_label(
+                self,
+                screen_vertices,
+                index,
+                f"{angle:.1f}°",
+                ("Segoe UI", 9, "bold"),
                 ANGLE,
-                ("Segoe UI", 8, "bold"),
+                BACKGROUND,
             )
 
     def _text_with_background(
