@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+dist/
+build/pyinstaller/
+build/version_info.txt
+*.log
+*.tmp
+*.part
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+update_cache.json
+last_update_check.json
