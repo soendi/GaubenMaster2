@@ -150,7 +150,7 @@ class UiSmokeTests(unittest.TestCase):
         self.app._height_changed()
         self.assertEqual(self.app.parts_list.extras, (2.0, 1.0, 3.0))
 
-    def test_part_popup_is_250_pixels_and_draws_content(self):
+    def test_part_popup_is_800_pixels_and_draws_content(self):
         self.app._calculate()
         self.app.height_var.set(True)
         self.app._rebuild_view()
@@ -160,8 +160,8 @@ class UiSmokeTests(unittest.TestCase):
         popup = PartPopup(self.app.parts_list, part, self.app.parts_list.axis, extras)
         try:
             popup.update_idletasks()
-            self.assertEqual(popup.winfo_width(), 250)
-            self.assertEqual(popup.winfo_height(), 250)
+            self.assertEqual(popup.winfo_width(), 800)
+            self.assertEqual(popup.winfo_height(), 800)
             popup._draw(part, self.app.parts_list.axis, extras)
             self.assertGreater(len(popup.canvas.find_all()), 0)
         finally:
