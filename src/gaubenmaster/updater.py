@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 REPO = "soendi/GaubenMaster2"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_BASE = f"https://github.com/{REPO}/releases/download/"
+REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 CHECKSUMS_NAME = "SHA256SUMS.txt"
 INSTALLER_PREFIX = "GaubenMaster2-Setup-"
 INSTALLER_SUFFIX = ".msi"
@@ -71,7 +72,7 @@ class UpdateInfo:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: Any) -> "UpdateInfo":
+    def from_dict(cls, value: Any, repo: str = REPO) -> "UpdateInfo":
         if not isinstance(value, dict):
             raise ValueError("ungueltiger Cache")
         info = cls(
@@ -90,8 +91,8 @@ class UpdateInfo:
             raise ValueError("ungueltiger Dateiname")
         if not MIN_INSTALLER_SIZE <= info.installer_size <= MAX_INSTALLER_SIZE:
             raise ValueError("ungueltige Dateigroesse")
-        _validate_url(info.installer_url, info.tag, info.installer_name)
-        _validate_url(info.checksums_url, info.tag, CHECKSUMS_NAME)
+        _validate_url(info.installer_url, info.tag, info.installer_name, repo)
+        _validate_url(info.checksums_url, info.tag, CHECKSUMS_NAME, repo)
         return info
 
 
@@ -109,17 +110,36 @@ def is_newer(latest: str, current: str) -> bool:
     return parse_version(latest) > parse_version(current)
 
 
+def normalize_repo(value: str) -> str:
+    """Akzeptiert ``owner/repo`` oder eine GitHub-Repository-URL."""
+    text = value.strip()
+    if text.startswith(("https://", "http://")):
+        parsed = urlparse(text)
+        if parsed.scheme != "https" or (parsed.hostname or "").lower() != "github.com":
+            raise UpdateError("Die Repository-URL muss auf github.com zeigen.")
+        text = unquote(parsed.path).strip("/")
+    if text.lower().endswith(".git"):
+        text = text[:-4]
+    if not REPO_RE.match(text):
+        raise UpdateError("Die Repository-URL muss die Form owner/repo haben.")
+    return text
+
+
+def api_url(repo: str = REPO) -> str:
+    return f"https://api.github.com/repos/{normalize_repo(repo)}/releases/latest"
+
+
 def installer_filename(version: str) -> str:
     return f"{INSTALLER_PREFIX}{version}{INSTALLER_SUFFIX}"
 
 
-def _validate_url(url: str, tag: str, asset_name: str) -> None:
+def _validate_url(url: str, tag: str, asset_name: str, repo: str = REPO) -> None:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
     if parsed.scheme != "https" or host not in ALLOWED_HOSTS:
         raise UpdateError("Der Release-Download stammt nicht von GitHub.")
     if host == "github.com":
-        expected = f"/{REPO.lower()}/releases/download/{tag}/".lower()
+        expected = f"/{normalize_repo(repo).lower()}/releases/download/{tag}/".lower()
         if not unquote(parsed.path).lower().startswith(expected):
             raise UpdateError("Der Release-Download passt nicht zum Repository.")
     if unquote(Path(parsed.path).name) != asset_name:
@@ -152,7 +172,9 @@ def _http_status(response: Any) -> int:
     return int(getattr(response, "status", 200) or 200)
 
 
-def _release_assets(release: dict[str, Any], version: str) -> tuple[dict, dict]:
+def _release_assets(
+    release: dict[str, Any], version: str, repo: str = REPO
+) -> tuple[dict, dict]:
     assets = release.get("assets")
     if not isinstance(assets, list):
         raise UpdateError("Der Release enthaelt keine Dateien.")
@@ -183,7 +205,7 @@ def _release_assets(release: dict[str, Any], version: str) -> tuple[dict, dict]:
         url = asset.get("browser_download_url")
         if not isinstance(url, str):
             raise UpdateError("Release-Download-Adresse fehlt.")
-        _validate_url(url, release["tag_name"], expected_name)
+        _validate_url(url, release["tag_name"], expected_name, repo)
     return installer, checksums
 
 
@@ -191,9 +213,11 @@ def fetch_latest_release(
     current_version: str = __version__,
     opener: Opener = urlopen,
     timeout: float = 10.0,
+    repo: str = REPO,
 ) -> UpdateInfo | None:
     """Ermittelt die neueste stabile Version. ``None`` = kein Update."""
-    with _open(opener, API_URL, timeout) as response:
+    repo = normalize_repo(repo)
+    with _open(opener, api_url(repo), timeout) as response:
         if _http_status(response) != 200:
             raise UpdateError("GitHub lieferte keine gueltige Release-Antwort.")
         try:
@@ -217,7 +241,7 @@ def fetch_latest_release(
     if not is_newer(version, current_version):
         return None
 
-    installer, checksums = _release_assets(release, version)
+    installer, checksums = _release_assets(release, version, repo)
     notes = release.get("body")
     return UpdateInfo(
         version=version,
@@ -266,10 +290,12 @@ def download_and_verify(
     opener: Opener = urlopen,
     progress: Progress | None = None,
     timeout: float = 30.0,
+    repo: str = REPO,
 ) -> Path:
     """Laedt den Installer, prueft Status, Groesse und SHA256, dann atomar ablegen."""
-    _validate_url(info.installer_url, info.tag, info.installer_name)
-    _validate_url(info.checksums_url, info.tag, CHECKSUMS_NAME)
+    repo = normalize_repo(repo)
+    _validate_url(info.installer_url, info.tag, info.installer_name, repo)
+    _validate_url(info.checksums_url, info.tag, CHECKSUMS_NAME, repo)
     if info.installer_name != installer_filename(info.version):
         raise UpdateError("Der Release-Dateiname ist unerwartet.")
 
@@ -335,12 +361,12 @@ def download_and_verify(
         raise
 
 
-def read_cache(path: Path) -> tuple[int, UpdateInfo | None]:
+def read_cache(path: Path, repo: str = REPO) -> tuple[int, UpdateInfo | None]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
         checked = int(value.get("checked_at", 0))
         raw_info = value.get("update")
-        info = UpdateInfo.from_dict(raw_info) if raw_info else None
+        info = UpdateInfo.from_dict(raw_info, repo) if raw_info else None
         return checked, info
     except (OSError, ValueError, TypeError, KeyError, UpdateError):
         return 0, None
@@ -359,9 +385,11 @@ def save_cache(path: Path, info: UpdateInfo | None, now: float | None = None) ->
         log.warning("Update-Cache konnte nicht gespeichert werden.")
 
 
-def cache_is_fresh(checked_at: int, now: float | None = None) -> bool:
+def cache_is_fresh(
+    checked_at: int, now: float | None = None, interval: float = CHECK_INTERVAL
+) -> bool:
     stamp = now if now is not None else time.time()
-    return checked_at > 0 and 0 <= stamp - checked_at < CHECK_INTERVAL
+    return checked_at > 0 and 0 <= stamp - checked_at < interval
 
 
 def _ps_quote(value: str) -> str:

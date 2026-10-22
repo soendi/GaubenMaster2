@@ -17,11 +17,13 @@ from gaubenmaster.updater import (  # noqa: E402
     MIN_INSTALLER_SIZE,
     UpdateError,
     UpdateInfo,
+    api_url,
     cache_is_fresh,
     download_and_verify,
     fetch_latest_release,
     installer_filename,
     launch_update_helper,
+    normalize_repo,
     parse_checksums,
     read_cache,
     save_cache,
@@ -202,6 +204,53 @@ class ReleaseTests(unittest.TestCase):
         opener = FakeOpener({API_URL: FakeResponse(b"x" * (1024 * 1024 + 1))})
         with self.assertRaises(UpdateError):
             fetch_latest_release("1.0.0", opener=opener)
+
+
+class RepositoryTests(unittest.TestCase):
+    def test_normalize_repository_forms(self):
+        self.assertEqual(normalize_repo("soendi/GaubenMaster2"), "soendi/GaubenMaster2")
+        self.assertEqual(
+            normalize_repo("https://github.com/soendi/GaubenMaster2"),
+            "soendi/GaubenMaster2",
+        )
+        self.assertEqual(
+            normalize_repo("https://github.com/soendi/GaubenMaster2.git/"),
+            "soendi/GaubenMaster2",
+        )
+        for value in ("", "owner", "https://gitlab.com/owner/repo", "a/b/c"):
+            with self.subTest(value=value):
+                with self.assertRaises(UpdateError):
+                    normalize_repo(value)
+
+    def test_custom_repository_is_used(self):
+        repo = "example/gauben-fork"
+        payload = release_payload("1.1.0")
+        tag = "v1.1.0"
+        base = f"https://github.com/{repo}/releases/download/{tag}"
+        for asset in payload["assets"]:
+            asset["browser_download_url"] = f"{base}/{asset['name']}"
+        opener = FakeOpener({api_url(repo): api_response(payload)})
+        info = fetch_latest_release("1.0.0", opener=opener, repo=repo)
+        self.assertIsNotNone(info)
+        assert info is not None
+        self.assertIn(f"/{repo}/releases/download/{tag}/", info.installer_url)
+        self.assertEqual(opener.requests, [api_url(repo)])
+
+    def test_cache_for_another_repository_is_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "update.json"
+            save_cache(path, build_info("1.1.0"))
+            checked, info = read_cache(path)
+            self.assertGreater(checked, 0)
+            self.assertIsNotNone(info)
+            checked, info = read_cache(path, repo="other/repository")
+            self.assertEqual(checked, 0)
+            self.assertIsNone(info)
+
+    def test_custom_interval(self):
+        now = 1_000_000
+        self.assertTrue(cache_is_fresh(now - 10, now, interval=60))
+        self.assertFalse(cache_is_fresh(now - 61, now, interval=60))
 
 
 class ChecksumTests(unittest.TestCase):

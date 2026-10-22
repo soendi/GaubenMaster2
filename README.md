@@ -1,8 +1,24 @@
 # GaubenMaster2
 
-GaubenMaster2 ist eine schlanke Windows-Anwendung für die Gaubenplanung.
-Dieses Repository enthält das Grundgerüst, die Versionsverwaltung und ein
-automatisches, prüfsummengesichertes Update über GitHub Releases.
+GaubenMaster2 berechnet und visualisiert Dreiecke für die Gaubenplanung.
+Dazu kommen Höhenteilung, Einzelteil-Listen und ein automatisches,
+prüfsummengesichertes Update über GitHub Releases.
+
+## Funktionen
+
+- Eingabe der Seiten `a`, `b`, `c` in cm mit Dezimalkomma oder Dezimalpunkt
+- Prüfung auf positive Seiten und die Dreiecksungleichung
+- Winkel, Fläche, Umfang, Höhen, Inkreis- und Umkreisradius
+- Interaktive Zeichnung: Drehen per Mauszug, Zoomen per Mausrad
+- Beschriftete Seiten, Eckpunkte, Winkel und Bounding-Boxen
+- Höhenteilung über `ha`, `hb` oder `hc`
+- Teilung in 2–20 gleiche Teile oder in Abschnitte à 0,1–50 cm
+- Farbige Einzelteile mit Fläche, Kantenlängen, Winkeln und Hover-Hervorhebung
+- Zuschnittangaben für Länge sowie vorderen und hinteren Falz
+- Update-Prüfung beim Start mit Benachrichtigung und stiller MSI-Installation
+- Einstellungen für Auto-Update, Prüfintervall und Repository-URL
+
+Die Fenstergröße startet mit 1400 × 900 Pixeln.
 
 ## Technik
 
@@ -32,8 +48,9 @@ herunterladen und ausführen; er entfernt die alten NSIS-Verknüpfungen und
 
 ## Updates
 
-Beim Start prüft die Anwendung höchstens alle sechs Stunden die neueste
-stabile GitHub-Version. Ein Update wird nur angeboten, wenn:
+Beim Start prüft die Anwendung die neueste stabile GitHub-Version. Das
+Prüfintervall, die automatische Suche und die Repository-URL lassen sich
+unter **Extras → Einstellungen** ändern. Ein Update wird nur angeboten, wenn:
 
 - das Release nicht als Entwurf oder Vorabversion markiert ist,
 - Tag und Dateiname exakt zum erwarteten Schema passen,
@@ -43,6 +60,14 @@ stabile GitHub-Version. Ein Update wird nur angeboten, wenn:
 Nach der Bestätigung beendet sich die Anwendung, der MSI-Installer läuft
 still, und die neue Version wird automatisch gestartet. Schlägt die
 Installation fehl, rollt Windows Installer die Änderungen zurück.
+
+## Aufbau
+
+- `geometry.py`: validierte Dreiecksberechnung und Höhenteilung ohne UI
+- `plot.py`: interaktive Tkinter-Zeichenfläche und Hover-Erkennung
+- `ui.py`: Fenster, Eingaben, Einzelteil-Seitenleiste, Einstellungen, Updates
+- `updater.py`: Release-Prüfung, Download, Prüfsumme und MSI-Installation
+- `paths.py`: Installations-, Daten- und Cache-Pfade
 
 ## Entwicklung
 
@@ -75,7 +100,7 @@ dist\GaubenMaster2\GaubenMaster2.exe --install-update-out out.json --no-restart
 3. Tag `v<Version>` pushen.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\release.ps1 -Version 1.1.0
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\release.ps1 -Version 1.2.0
 ```
 
 Der Release-Workflow prüft Tag und Version, baut den MSI-Installer, testet das
