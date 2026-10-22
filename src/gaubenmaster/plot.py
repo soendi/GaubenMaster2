@@ -438,6 +438,14 @@ class TriangleView(tk.Canvas):
 
     def redraw(self) -> None:
         self.delete("all")
+        self.create_rectangle(
+            0,
+            0,
+            max(1, self.winfo_width()),
+            max(1, self.winfo_height()),
+            fill=BACKGROUND,
+            outline="",
+        )
         self._screen_parts = []
         self._labeled_edges = set()
         self._transform = self._build_transform()
@@ -469,7 +477,7 @@ class TriangleView(tk.Canvas):
         self._draw_triangle_outline(screen_vertices)
         self._draw_sides()
         self._draw_vertices()
-        self._draw_angles()
+        self._draw_angles(show_labels=not (self.height_active and self.parts))
 
     def _draw_triangle_outline(self, screen_vertices: list[Point]) -> None:
         self.create_polygon(
@@ -572,6 +580,20 @@ class TriangleView(tk.Canvas):
                 angle=-text_angle,
             )
 
+        angle_font_size = 7 if len(self.parts) <= 8 else 6
+        for index, angle in enumerate(part.angles_deg):
+            if angle <= 1.0 or angle >= 179.0:
+                continue
+            create_angle_label(
+                self,
+                screen,
+                index,
+                f"{angle:.1f}°",
+                ("Segoe UI", angle_font_size, "bold"),
+                ANGLE,
+                tags=("part-angle-label", f"part-angle-label-{part.index}"),
+            )
+
     def _draw_height(self) -> None:
         if not self.triangle:
             return
@@ -597,42 +619,126 @@ class TriangleView(tk.Canvas):
         )
         midpoint = ((start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0)
         label = f"{self.height_name} = {self.triangle.height(self.height_name):.2f} cm"  # type: ignore[arg-type]
+        text_angle = math.degrees(math.atan2(end[1] - start[1], end[0] - start[0]))
+        if text_angle > 90.0:
+            text_angle -= 180.0
+        elif text_angle <= -90.0:
+            text_angle += 180.0
+
+        vertex, base1, base2 = self.triangle.height_segment(self.height_name)  # type: ignore[arg-type]
+        base1_screen = self._to_screen(base1)
+        base2_screen = self._to_screen(base2)
+        foot_distance = min(
+            math.hypot(end[0] - base1_screen[0], end[1] - base1_screen[1]),
+            math.hypot(end[0] - base2_screen[0], end[1] - base2_screen[1]),
+        )
+        label_x, label_y = midpoint
+        if foot_distance < 8.0:
+            dx = end[0] - start[0]
+            dy = end[1] - start[1]
+            length = math.hypot(dx, dy)
+            if length > 1e-9:
+                normal_x = -dy / length
+                normal_y = dx / length
+                screen_vertices = [
+                    self._to_screen(point) for point in self.triangle.vertices
+                ]
+                centroid = (
+                    sum(point[0] for point in screen_vertices) / 3.0,
+                    sum(point[1] for point in screen_vertices) / 3.0,
+                )
+                if normal_x * (centroid[0] - midpoint[0]) + normal_y * (
+                    centroid[1] - midpoint[1]
+                ) > 0.0:
+                    normal_x = -normal_x
+                    normal_y = -normal_y
+                label_x += normal_x * 74.0
+                label_y += normal_y * 74.0
+
         self._text_with_background(
-            midpoint[0] + 10,
-            midpoint[1],
+            label_x,
+            label_y,
             label,
             HEIGHT,
             ("Segoe UI", 8, "bold"),
-            anchor="w",
+            angle=-text_angle,
+            tags=("height-label",),
         )
 
     def _draw_sides(self) -> None:
         if not self.triangle:
             return
         vertices = self.triangle.vertices
+        screen_vertices = [self._to_screen(point) for point in vertices]
         centroid = (
-            sum(point[0] for point in vertices) / 3.0,
-            sum(point[1] for point in vertices) / 3.0,
+            sum(point[0] for point in screen_vertices) / 3.0,
+            sum(point[1] for point in screen_vertices) / 3.0,
         )
         sides = (
-            ("a", vertices[1], vertices[2], self.triangle.a),
-            ("b", vertices[2], vertices[0], self.triangle.b),
-            ("c", vertices[0], vertices[1], self.triangle.c),
+            ("a", 1, 2, self.triangle.a),
+            ("b", 2, 0, self.triangle.b),
+            ("c", 0, 1, self.triangle.c),
         )
-        for name, point1, point2, value in sides:
-            midpoint = ((point1[0] + point2[0]) / 2.0, (point1[1] + point2[1]) / 2.0)
-            screen = self._to_screen(midpoint)
-            center = self._to_screen(centroid)
-            dx = screen[0] - center[0]
-            dy = screen[1] - center[1]
-            length = math.hypot(dx, dy) or 1.0
-            offset = 22.0
+        for name, index1, index2, value in sides:
+            point1 = screen_vertices[index1]
+            point2 = screen_vertices[index2]
+            dx = point2[0] - point1[0]
+            dy = point2[1] - point1[1]
+            length = math.hypot(dx, dy)
+            if length < 1.0:
+                continue
+            normal_x = -dy / length
+            normal_y = dx / length
+            midpoint = (
+                (point1[0] + point2[0]) / 2.0,
+                (point1[1] + point2[1]) / 2.0,
+            )
+            if normal_x * (midpoint[0] - centroid[0]) + normal_y * (
+                midpoint[1] - centroid[1]
+            ) < 0.0:
+                normal_x = -normal_x
+                normal_y = -normal_y
+
+            offset = 54.0
+            line_start = (
+                point1[0] + normal_x * offset,
+                point1[1] + normal_y * offset,
+            )
+            line_end = (
+                point2[0] + normal_x * offset,
+                point2[1] + normal_y * offset,
+            )
+            self.create_line(
+                *line_start,
+                *line_end,
+                fill="#0b2a55",
+                width=1,
+                tags=("side-dimension", f"side-dimension-{name}"),
+            )
+            for endpoint in (line_start, line_end):
+                self.create_line(
+                    endpoint[0] - normal_x * 3.0,
+                    endpoint[1] - normal_y * 3.0,
+                    endpoint[0] + normal_x * 3.0,
+                    endpoint[1] + normal_y * 3.0,
+                    fill="#0b2a55",
+                    width=1,
+                    tags=("side-tick", f"side-tick-{name}"),
+                )
+
+            text_angle = math.degrees(math.atan2(dy, dx))
+            if text_angle > 90.0:
+                text_angle -= 180.0
+            elif text_angle <= -90.0:
+                text_angle += 180.0
             self._text_with_background(
-                screen[0] + dx / length * offset,
-                screen[1] + dy / length * offset,
+                (line_start[0] + line_end[0]) / 2.0,
+                (line_start[1] + line_end[1]) / 2.0,
                 f"{name} = {value:.2f} cm",
                 "#0b2a55",
                 ("Segoe UI", 10, "bold"),
+                angle=-text_angle,
+                tags=("side-label", f"side-label-{name}"),
             )
 
     def _draw_vertices(self) -> None:
@@ -658,15 +764,17 @@ class TriangleView(tk.Canvas):
             dx = screen[0] - center[0]
             dy = screen[1] - center[1]
             length = math.hypot(dx, dy) or 1.0
-            self._text_with_background(
+            self.create_text(
                 screen[0] + dx / length * 17,
                 screen[1] + dy / length * 17,
-                name,
-                VERTEX,
-                ("Segoe UI", 11, "bold"),
+                text=name,
+                fill=VERTEX,
+                font=("Segoe UI", 11, "bold"),
+                justify="center",
+                tags=("vertex-label",),
             )
 
-    def _draw_angles(self) -> None:
+    def _draw_angles(self, *, show_labels: bool = True) -> None:
         if not self.triangle:
             return
         vertices = self.triangle.vertices
@@ -694,14 +802,16 @@ class TriangleView(tk.Canvas):
                     )
                 )
             self.create_line(*points, fill=ANGLE, width=1.6)
+            if not show_labels:
+                continue
             create_angle_label(
                 self,
                 screen_vertices,
                 index,
                 f"{angle:.1f}°",
                 ("Segoe UI", 9, "bold"),
-                ANGLE,
-                BACKGROUND,
+                "#ffffff",
+                tags=("angle-label",),
             )
 
     def _text_with_background(
@@ -712,6 +822,8 @@ class TriangleView(tk.Canvas):
         color: str,
         font: tuple,
         anchor: str = "center",
+        angle: float = 0.0,
+        tags: tuple[str, ...] = (),
     ) -> None:
         identifier = self.create_text(
             x,
@@ -721,6 +833,8 @@ class TriangleView(tk.Canvas):
             font=font,
             anchor=anchor,
             justify="center",
+            angle=angle,
+            tags=tags,
         )
         box = self.bbox(identifier)
         if not box:
@@ -732,5 +846,6 @@ class TriangleView(tk.Canvas):
             box[3] + 1,
             fill=BACKGROUND,
             outline="",
+            tags=tags,
         )
         self.tag_lower(background, identifier)

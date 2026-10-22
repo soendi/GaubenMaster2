@@ -77,6 +77,13 @@ def _format_number(value: float, digits: int = 2) -> str:
     return f"{value:.{digits}f}".replace(".", ",")
 
 
+def _format_area_m2(area_cm2: float) -> str:
+    text = _format_number(area_cm2 / 10000.0, 6)
+    if "," in text:
+        text = text.rstrip("0").rstrip(",")
+    return text
+
+
 class UpdateToast(tk.Toplevel):
     """Kleine Benachrichtigung unten rechts, die sich nach 30 s schliesst."""
 
@@ -570,7 +577,10 @@ class App:
         except (ValueError, GeometryError) as exc:
             self._set_validation(False, str(exc))
             return
-        self._set_validation(True, f"Gültiges Dreieck · Fläche {_format_number(triangle.area)} cm²")
+        self._set_validation(
+            True,
+            f"Gültiges Dreieck\nFläche {_format_area_m2(triangle.area)} m²",
+        )
 
     def _set_validation(self, valid: bool, message: str) -> None:
         self.validation.configure(
@@ -586,7 +596,10 @@ class App:
             self.first_entry.focus_set()
             return
         self.triangle = triangle
-        self._set_validation(True, f"Gültiges Dreieck · Fläche {_format_number(triangle.area)} cm²")
+        self._set_validation(
+            True,
+            f"Gültiges Dreieck\nFläche {_format_area_m2(triangle.area)} m²",
+        )
         self.status.configure(
             text=(
                 f"a={_format_number(triangle.a)} cm   "
@@ -595,7 +608,7 @@ class App:
                 f"α={_format_number(triangle.alpha)}°   "
                 f"β={_format_number(triangle.beta)}°   "
                 f"γ={_format_number(triangle.gamma)}°   |   "
-                f"A={_format_number(triangle.area)} cm²"
+                f"A={_format_area_m2(triangle.area)} m²"
             )
         )
         self._rebuild_view()

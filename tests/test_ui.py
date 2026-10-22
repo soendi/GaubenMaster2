@@ -1,7 +1,9 @@
+import math
 import sys
 import tkinter as tk
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -52,6 +54,75 @@ class UiSmokeTests(unittest.TestCase):
         self.assertIn("36.9°", texts)
         self.assertIn("53.1°", texts)
         self.assertIn("90.0°", texts)
+
+    def test_angle_labels_are_white_and_transparent(self):
+        self.app._calculate()
+        items = self.app.view.find_withtag("angle-label")
+        texts = [
+            item for item in items if self.app.view.type(item) == "text"
+        ]
+        self.assertEqual(len(texts), 3)
+        for item in texts:
+            self.assertEqual(self.app.view.itemcget(item, "fill"), "#ffffff")
+        self.assertFalse(
+            any(self.app.view.type(item) == "rectangle" for item in items)
+        )
+
+    def test_vertex_labels_are_transparent(self):
+        self.app._calculate()
+        items = self.app.view.find_withtag("vertex-label")
+        texts = [
+            item for item in items if self.app.view.type(item) == "text"
+        ]
+        self.assertEqual(len(texts), 3)
+        self.assertFalse(
+            any(self.app.view.type(item) == "rectangle" for item in items)
+        )
+
+    def test_side_dimensions_are_outside_centered_and_match_edge_lengths(self):
+        view = self.app.view
+        with (
+            mock.patch.object(view, "winfo_width", return_value=1200),
+            mock.patch.object(view, "winfo_height", return_value=800),
+        ):
+            self.app._calculate()
+            self.app._rebuild_view()
+
+        vertices = self.app.triangle.vertices
+        screen = [view._to_screen(point) for point in vertices]
+        centroid = (
+            sum(point[0] for point in screen) / 3.0,
+            sum(point[1] for point in screen) / 3.0,
+        )
+        for name, index1, index2 in (("a", 1, 2), ("b", 2, 0), ("c", 0, 1)):
+            line_id = view.find_withtag(f"side-dimension-{name}")[0]
+            self.assertEqual(float(view.itemcget(line_id, "width")), 1.0)
+            x1, y1, x2, y2 = view.coords(line_id)
+            edge_length = math.hypot(
+                screen[index2][0] - screen[index1][0],
+                screen[index2][1] - screen[index1][1],
+            )
+            self.assertAlmostEqual(math.hypot(x2 - x1, y2 - y1), edge_length, places=6)
+
+            line_mid = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+            edge_mid = (
+                (screen[index1][0] + screen[index2][0]) / 2.0,
+                (screen[index1][1] + screen[index2][1]) / 2.0,
+            )
+            self.assertGreater(
+                math.hypot(line_mid[0] - centroid[0], line_mid[1] - centroid[1]),
+                math.hypot(edge_mid[0] - centroid[0], edge_mid[1] - centroid[1])
+                + 50.0,
+            )
+
+            text_id = next(
+                item
+                for item in view.find_withtag(f"side-label-{name}")
+                if view.type(item) == "text"
+            )
+            label_x, label_y = view.coords(text_id)
+            self.assertAlmostEqual(label_x, line_mid[0], places=6)
+            self.assertAlmostEqual(label_y, line_mid[1], places=6)
 
     def test_invalid_input_shows_error(self):
         self.app.side_vars["a"].set("1")
