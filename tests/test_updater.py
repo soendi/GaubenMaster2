@@ -127,7 +127,7 @@ class ReleaseTests(unittest.TestCase):
         assert info is not None
         self.assertEqual(info.version, "1.1.0")
         self.assertEqual(info.tag, "v1.1.0")
-        self.assertEqual(info.installer_name, "GaubenMaster2-Setup-1.1.0.exe")
+        self.assertEqual(info.installer_name, "GaubenMaster2-Setup-1.1.0.msi")
         self.assertGreaterEqual(info.installer_size, MIN_INSTALLER_SIZE)
         self.assertTrue(info.installer_url.startswith("https://github.com/"))
         self.assertEqual(len(opener.requests), 1)
@@ -163,7 +163,7 @@ class ReleaseTests(unittest.TestCase):
     def test_wrong_host_is_rejected(self):
         payload = release_payload("1.1.0")
         payload["assets"][0]["browser_download_url"] = (
-            "https://evil.example/GaubenMaster2-Setup-1.1.0.exe"
+            "https://evil.example/GaubenMaster2-Setup-1.1.0.msi"
         )
         opener = FakeOpener({API_URL: api_response(payload)})
         with self.assertRaises(UpdateError):
@@ -173,7 +173,7 @@ class ReleaseTests(unittest.TestCase):
         payload = release_payload("1.1.0")
         payload["assets"][0]["browser_download_url"] = (
             "https://github.com/evil/repo/releases/download/v1.1.0/"
-            "GaubenMaster2-Setup-1.1.0.exe"
+            "GaubenMaster2-Setup-1.1.0.msi"
         )
         opener = FakeOpener({API_URL: api_response(payload)})
         with self.assertRaises(UpdateError):
@@ -208,11 +208,11 @@ class ChecksumTests(unittest.TestCase):
     def test_parse(self):
         digest = "a" * 64
         text = (
-            f"# comment\n{digest}  file.exe\n{'b' * 64} *other.exe\ninvalid line\n"
+            f"# comment\n{digest}  file.msi\n{'b' * 64} *other.msi\ninvalid line\n"
         )
         result = parse_checksums(text)
-        self.assertEqual(result["file.exe"], digest)
-        self.assertEqual(result["other.exe"], "b" * 64)
+        self.assertEqual(result["file.msi"], digest)
+        self.assertEqual(result["other.msi"], "b" * 64)
         self.assertEqual(len(result), 2)
 
 
@@ -271,7 +271,7 @@ class DownloadTests(unittest.TestCase):
     def test_missing_checksum_entry_is_rejected(self):
         routes = self._routes()
         routes[self.info.checksums_url] = FakeResponse(
-            f"{self.digest}  other.exe\n".encode()
+            f"{self.digest}  other.msi\n".encode()
         )
         with self.assertRaises(UpdateError):
             download_and_verify(self.info, self.dir, opener=FakeOpener(routes))
@@ -332,7 +332,7 @@ class HelperTests(unittest.TestCase):
     def test_helper_contains_quoted_paths_and_wait(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
-            installer = base / "Ordner mit 'Quote'" / "GaubenMaster2-Setup-1.1.0.exe"
+            installer = base / "Ordner mit 'Quote'" / "GaubenMaster2-Setup-1.1.0.msi"
             installer.parent.mkdir()
             installer.write_bytes(b"x")
             app = base / "Program Files" / "GaubenMaster2.exe"
@@ -341,7 +341,10 @@ class HelperTests(unittest.TestCase):
             )
             text = helper.read_text(encoding="utf-8-sig")
             self.assertIn("Wait-Process -Id 4321", text)
-            self.assertIn("ArgumentList '/S'", text)
+            self.assertIn("msiexec.exe", text)
+            self.assertIn("/i \"", text)
+            self.assertIn("/qn /norestart", text)
+            self.assertIn("ArgumentList $arguments", text)
             self.assertIn("Ordner mit ''Quote''", text)
             self.assertIn("Start-Process -FilePath", text)
 
@@ -349,7 +352,7 @@ class HelperTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             helper = write_update_helper(
-                base / "setup.exe", base / "app.exe", 1, base, restart=False
+                base / "setup.msi", base / "app.exe", 1, base, restart=False
             )
             text = helper.read_text(encoding="utf-8-sig")
             self.assertIn("Neustart deaktiviert", text)
@@ -366,6 +369,14 @@ class HelperTests(unittest.TestCase):
             if os.name == "nt":
                 self.assertEqual(flags & 0x00000008, 0)
 
+    def test_launch_rejects_legacy_exe_installer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            installer = base / (installer_filename("2.0.0").replace(".msi", ".exe"))
+            installer.write_bytes(b"x")
+            with self.assertRaises(UpdateError):
+                launch_update_helper(installer, base / "app.exe", 1, base)
+
 
 class CacheValidationTests(unittest.TestCase):
     def test_invalid_cached_assets_are_ignored(self):
@@ -379,8 +390,8 @@ class CacheValidationTests(unittest.TestCase):
                             "version": "2.0.0",
                             "tag": "v2.0.0",
                             "notes": "",
-                            "installer_url": "https://evil.example/x.exe",
-                            "installer_name": "GaubenMaster2-Setup-2.0.0.exe",
+                            "installer_url": "https://evil.example/x.msi",
+                            "installer_name": "GaubenMaster2-Setup-2.0.0.msi",
                             "installer_size": MIN_INSTALLER_SIZE,
                             "checksums_url": "https://evil.example/SHA256SUMS.txt",
                         },

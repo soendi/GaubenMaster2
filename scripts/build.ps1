@@ -68,27 +68,37 @@ if ($appDir) { Write-Host ("App-Ordner: {0:N2} MB" -f ($appBytes / 1MB)) }
 $installerBytes = 0
 $installer = $null
 if (-not $Onefile) {
-    $makensis = $env:MAKENSIS
-    if (-not $makensis) {
-        $candidate = Join-Path ${env:ProgramFiles(x86)} "NSIS\makensis.exe"
-        if (Test-Path $candidate) { $makensis = $candidate }
+    $wix = $env:WIX
+    if (-not $wix) {
+        $candidate = Join-Path $env:USERPROFILE ".dotnet\tools\wix.exe"
+        if (Test-Path $candidate) { $wix = $candidate }
     }
-    if (-not $makensis) {
-        $command = Get-Command makensis.exe -ErrorAction SilentlyContinue
-        if ($command) { $makensis = $command.Source }
+    if (-not $wix) {
+        $command = Get-Command wix.exe -ErrorAction SilentlyContinue
+        if ($command) { $wix = $command.Source }
     }
-    if (-not $makensis) { throw "makensis.exe nicht gefunden (NSIS installieren oder MAKENSIS setzen)." }
+    if (-not $wix) {
+        throw "wix.exe nicht gefunden (WiX 6 installieren oder WIX setzen)."
+    }
 
-    $sizeKb = [int]([math]::Ceiling($appBytes / 1KB))
-    & $makensis /V2 "/DVERSION=$version" "/DAPP_DIR=$appDir" "/DOUTDIR=$root\dist" "/DICON=$root\assets\icon.ico" "/DAPP_SIZE_KB=$sizeKb" installer\GaubenMaster2.nsi
-    if ($LASTEXITCODE -ne 0) { throw "NSIS-Installer fehlgeschlagen." }
+    $installer = Join-Path $root "dist\GaubenMaster2-Setup-$version.msi"
+    $wixArgs = @(
+        "build", "installer\GaubenMaster2.wxs",
+        "-arch", "x64",
+        "-ext", "WixToolset.Util.wixext",
+        "-d", "AppDir=$appDir",
+        "-d", "Version=$version",
+        "-d", "IconPath=$root\assets\icon.ico",
+        "-o", $installer
+    )
+    & $wix @wixArgs
+    if ($LASTEXITCODE -ne 0) { throw "WiX-Installer fehlgeschlagen." }
 
-    $installer = Join-Path $root "dist\GaubenMaster2-Setup-$version.exe"
     if (-not (Test-Path $installer)) { throw "Installer wurde nicht erzeugt." }
     $installerBytes = (Get-Item $installer).Length
     $hash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
     "$hash  $(Split-Path $installer -Leaf)" | Set-Content -Encoding ascii (Join-Path $root "dist\SHA256SUMS.txt")
-    Write-Host ("Installer: {0:N2} MB, SHA256 {1}" -f ($installerBytes / 1MB), $hash)
+    Write-Host ("MSI: {0:N2} MB, SHA256 {1}" -f ($installerBytes / 1MB), $hash)
 }
 
 $metrics = [ordered]@{

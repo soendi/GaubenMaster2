@@ -32,7 +32,7 @@ API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_BASE = f"https://github.com/{REPO}/releases/download/"
 CHECKSUMS_NAME = "SHA256SUMS.txt"
 INSTALLER_PREFIX = "GaubenMaster2-Setup-"
-INSTALLER_SUFFIX = ".exe"
+INSTALLER_SUFFIX = ".msi"
 
 CHECK_INTERVAL = 6 * 60 * 60
 MIN_INSTALLER_SIZE = 1 * 1024 * 1024
@@ -404,8 +404,10 @@ try {{
 }}
 Start-Sleep -Milliseconds 600
 try {{
-    $process = Start-Process -FilePath {_ps_quote(str(installer))} `
-        -ArgumentList '/S' -Wait -PassThru
+    $msiexec = Join-Path $env:SystemRoot 'System32\\msiexec.exe'
+    $arguments = '/i "' + {_ps_quote(str(installer))} + '" /qn /norestart'
+    $process = Start-Process -FilePath $msiexec `
+        -ArgumentList $arguments -Wait -PassThru
     Write-Log ('Installer beendet, ExitCode ' + $process.ExitCode)
 }} catch {{
     Write-Log ('Installer-Fehler: ' + $_)
@@ -431,7 +433,7 @@ def launch_update_helper(
     """Startet den Installer nach dem Beenden dieser Anwendung, ohne Adminrechte."""
     if not installer.is_file():
         raise UpdateError("Der heruntergeladene Installer fehlt.")
-    if installer.suffix.lower() != ".exe" or not installer.name.startswith(INSTALLER_PREFIX):
+    if installer.suffix.lower() != ".msi" or not installer.name.startswith(INSTALLER_PREFIX):
         raise UpdateError("Die Update-Datei ist unerwartet.")
     helper = write_update_helper(installer, app_exe, pid, data_root, restart=restart)
     system_root = Path(os.environ.get("SystemRoot", r"C:\Windows"))

@@ -38,8 +38,13 @@ jobs:
           cache-dependency-path: requirements-dev.txt
       - name: Abhängigkeiten
         run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
-      - name: NSIS installieren
-        run: choco install nsis --no-progress -y
+      - name: WiX installieren
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 6.0.2
+          $wix = Join-Path $env:USERPROFILE ".dotnet\tools\wix.exe"
+          & $wix extension add -g WixToolset.Util.wixext/6.0.2
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE ".dotnet\tools")
       - name: Bauen und Artefakt testen
         shell: pwsh
         env:
@@ -50,7 +55,7 @@ jobs:
         with:
           name: gaubenmaster2-build
           path: |
-            dist/GaubenMaster2-Setup-*.exe
+            dist/GaubenMaster2-Setup-*.msi
             dist/SHA256SUMS.txt
             dist/build-metrics.json
           if-no-files-found: error

@@ -32,7 +32,7 @@ class VersionTests(unittest.TestCase):
 
     def test_installer_name(self):
         self.assertEqual(
-            installer_filename("1.2.3"), "GaubenMaster2-Setup-1.2.3.exe"
+            installer_filename("1.2.3"), "GaubenMaster2-Setup-1.2.3.msi"
         )
 
 

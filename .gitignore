@@ -14,3 +14,4 @@ build/version_info.txt
 .ruff_cache/
 update_cache.json
 last_update_check.json
+.wix/

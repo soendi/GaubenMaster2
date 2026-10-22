@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package
+      Name="GaubenMaster2"
+      Manufacturer="Lukas Sonderegger"
+      Version="$(var.Version)"
+      UpgradeCode="B30B34C1-E61A-415B-AE4F-4934CF0E7CE0"
+      Scope="perUser"
+      Compressed="yes"
+      InstallerVersion="500">
+
+    <MajorUpgrade
+        AllowSameVersionUpgrades="yes"
+        DowngradeErrorMessage="Eine neuere Version von GaubenMaster2 ist bereits installiert." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <Icon Id="AppIcon" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <util:CloseApplication
+        Id="CloseGaubenMaster2"
+        Target="GaubenMaster2.exe"
+        CloseMessage="no"
+        RebootPrompt="no"
+        TerminateProcess="0" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="GaubenMaster2" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppMenuFolder" Name="GaubenMaster2" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.AppDir)\**" />
+    </ComponentGroup>
+
+    <Component Id="AppShortcut" Directory="AppMenuFolder" Guid="*">
+      <Shortcut
+          Id="AppShortcut"
+          Name="GaubenMaster2"
+          Description="GaubenMaster2 starten"
+          Target="[INSTALLFOLDER]GaubenMaster2.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="AppIcon" />
+      <RemoveFolder Id="RemoveAppMenuFolder" Directory="AppMenuFolder" On="uninstall" />
+      <RegistryValue
+          Root="HKCU"
+          Key="Software\GaubenMaster2"
+          Name="InstallDir"
+          Type="string"
+          Value="[INSTALLFOLDER]"
+          KeyPath="yes" />
+    </Component>
+
+    <Component Id="LegacyCleanup" Directory="INSTALLFOLDER" Guid="F1CB4E8B-0FB2-4F21-8590-05467E1C3CF6">
+      <RemoveFile Id="RemoveLegacyUninstaller" Name="Uninstall.exe" On="install" />
+      <RemoveFile Id="RemoveLegacyUninstallShortcut" Directory="AppMenuFolder" Name="Deinstallieren.lnk" On="install" />
+      <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+      <RemoveRegistryKey
+          Root="HKCU"
+          Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\GaubenMaster2"
+          Action="removeOnInstall" />
+    </Component>
+
+    <Feature Id="Main" Title="GaubenMaster2" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="AppShortcut" />
+      <ComponentRef Id="LegacyCleanup" />
+    </Feature>
+  </Package>
+</Wix>
