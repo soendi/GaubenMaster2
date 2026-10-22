@@ -68,7 +68,14 @@ if ($appDir) { Write-Host ("App-Ordner: {0:N2} MB" -f ($appBytes / 1MB)) }
 $installerBytes = 0
 $installer = $null
 if (-not $Onefile) {
-    $wix = $env:WIX
+    $wix = $null
+    if ($env:WIX) {
+        $candidate = $env:WIX
+        if (Test-Path $candidate -PathType Container) {
+            $candidate = Join-Path $candidate "wix.exe"
+        }
+        if (Test-Path $candidate -PathType Leaf) { $wix = $candidate }
+    }
     if (-not $wix) {
         $candidate = Join-Path $env:USERPROFILE ".dotnet\tools\wix.exe"
         if (Test-Path $candidate) { $wix = $candidate }
@@ -78,7 +85,7 @@ if (-not $Onefile) {
         if ($command) { $wix = $command.Source }
     }
     if (-not $wix) {
-        throw "wix.exe nicht gefunden (WiX 6 installieren oder WIX setzen)."
+        throw "wix.exe nicht gefunden (WiX 6 installieren oder WIX auf wix.exe setzen)."
     }
 
     $installer = Join-Path $root "dist\GaubenMaster2-Setup-$version.msi"
