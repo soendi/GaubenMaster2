@@ -22,7 +22,7 @@ prüfsummengesichertes Update über GitHub Releases.
 - Update-Prüfung beim Start mit Benachrichtigung und stiller MSI-Installation
 - Einstellungen für Auto-Update, Prüfintervall und Repository-URL
 
-Die Fenstergröße startet mit 1400 × 900 Pixeln; die linke Steuerspalte ist 220 Pixel breit.
+Die Fenstergröße startet mit 1400 × 900 Pixeln; die linke Steuerspalte ist 240 Pixel breit.
 
 ## Technik
 

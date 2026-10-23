@@ -347,21 +347,19 @@ class App:
 
         outer = ttk.Frame(self.root, padding=(14, 12, 14, 8))
         outer.grid(row=0, column=0, sticky="nsew")
-        outer.columnconfigure(0, minsize=220)
+        outer.columnconfigure(0, minsize=240)
         outer.columnconfigure(1, weight=1)
         outer.rowconfigure(0, weight=1)
 
-        self.left = ttk.Frame(outer, width=220)
+        self.left = ttk.Frame(outer, width=240)
         self.left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         self.left.grid_propagate(False)
         self.left.pack_propagate(False)
-        self.left_footer = ttk.Frame(self.left)
-        self.left_footer.pack(side="bottom", fill="x")
         self.left_body = ttk.Frame(self.left)
         self.left_body.pack(side="top", fill="both", expand=True)
         self.left_canvas = tk.Canvas(
             self.left_body,
-            width=220,
+            width=240,
             highlightthickness=0,
             borderwidth=0,
             background=self.root.cget("background"),
@@ -624,10 +622,6 @@ class App:
                 variable=variable,
                 command=self._display_changed,
             ).grid(row=index, column=0, columnspan=2, sticky="w")
-
-        ttk.Button(self.left_footer, text="Beenden", command=self._close).pack(
-            fill="x", pady=(8, 0)
-        )
 
     def _build_footer(self) -> None:
         footer = ttk.Frame(self.root, padding=(14, 6, 14, 8))

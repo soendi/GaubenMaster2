@@ -43,8 +43,8 @@ class UiSmokeTests(unittest.TestCase):
             [part.index for part in self.app.parts_list.parts], [1, 2, 3, 4]
         )
 
-    def test_left_sidebar_is_220_pixels_wide(self):
-        self.assertEqual(int(self.app.left.cget("width")), 220)
+    def test_left_sidebar_is_240_pixels_wide(self):
+        self.assertEqual(int(self.app.left.cget("width")), 240)
 
     def test_angle_labels_use_requested_format(self):
         self.app._calculate()
