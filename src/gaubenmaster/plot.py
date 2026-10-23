@@ -800,6 +800,7 @@ class TriangleView(tk.Canvas):
                 self._label_font(bold=True),
                 angle=-text_angle,
                 tags=("side-label", f"side-label-{name}"),
+                background=False,
             )
 
     def _draw_vertices(self) -> None:
@@ -890,6 +891,7 @@ class TriangleView(tk.Canvas):
         anchor: str = "center",
         angle: float = 0.0,
         tags: tuple[str, ...] = (),
+        background: bool = True,
     ) -> None:
         identifier = self.create_text(
             x,
@@ -902,6 +904,8 @@ class TriangleView(tk.Canvas):
             angle=angle,
             tags=tags,
         )
+        if not background:
+            return
         box = self.bbox(identifier)
         if not box:
             return
