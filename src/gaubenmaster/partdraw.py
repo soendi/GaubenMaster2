@@ -382,6 +382,7 @@ def draw_part(
     background: str = BACKGROUND,
     options: DisplayOptions | None = None,
     rotate_clockwise: bool = False,
+    padding: tuple[float, float, float, float] | None = None,
 ) -> None:
     x0, y0, x1, y1 = bbox
     if x1 - x0 < 40 or y1 - y0 < 40:
@@ -436,7 +437,9 @@ def draw_part(
     cut_bottom = min(point[1] for point in extended_points)
     cut_top = max(point[1] for point in extended_points)
 
-    if compact:
+    if padding is not None:
+        pad_left, pad_right, pad_top, pad_bottom = padding
+    elif compact:
         pad_left = 58.0
         pad_right = 52.0
         pad_top = 58.0

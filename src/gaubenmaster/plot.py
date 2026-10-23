@@ -495,6 +495,7 @@ class TriangleView(tk.Canvas):
             self._height(),
             fill=BACKGROUND,
             outline="",
+            tags=("canvas-background",),
         )
         self._screen_parts = []
         self._labeled_edges = set()

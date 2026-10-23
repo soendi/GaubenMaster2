@@ -364,12 +364,7 @@ class App:
             borderwidth=0,
             background=self.root.cget("background"),
         )
-        self.left_scrollbar = ttk.Scrollbar(
-            self.left_body, orient="vertical", command=self.left_canvas.yview
-        )
-        self.left_scrollbar.pack(side="right", fill="y")
         self.left_canvas.pack(side="left", fill="both", expand=True)
-        self.left_canvas.configure(yscrollcommand=self.left_scrollbar.set)
         self.left_content = ttk.Frame(self.left_canvas)
         self.left_window = self.left_canvas.create_window(
             (0, 0), window=self.left_content, anchor="nw"

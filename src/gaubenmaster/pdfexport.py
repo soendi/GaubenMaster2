@@ -14,6 +14,7 @@ from .plot import DisplayOptions, TriangleView
 
 PAGE_WIDTH = 595.0
 PAGE_HEIGHT = 842.0
+PARTS_PER_PAGE = 4
 
 
 def _rgb(color: str) -> tuple[float, float, float] | None:
@@ -293,6 +294,41 @@ def _canvas_content(canvas: tk.Canvas) -> bytes:
     return ("\n".join(commands) + "\n").encode("cp1252", "replace")
 
 
+def _content_bbox(canvas: tk.Canvas) -> tuple[float, float, float, float] | None:
+    boxes = [
+        box
+        for item in canvas.find_all()
+        if "canvas-background" not in canvas.gettags(item)
+        if (box := canvas.bbox(item))
+    ]
+    if not boxes:
+        return None
+    return (
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        max(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+    )
+
+
+def _tag_bbox(
+    canvas: tk.Canvas, tag: str
+) -> tuple[float, float, float, float] | None:
+    boxes = [
+        box
+        for item in canvas.find_withtag(tag)
+        if (box := canvas.bbox(item))
+    ]
+    if not boxes:
+        return None
+    return (
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        max(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+    )
+
+
 def _pdf_document(pages: list[bytes]) -> bytes:
     objects: list[bytes] = []
 
@@ -372,10 +408,39 @@ def _main_page(
 ) -> bytes:
     view = TriangleView(master)
     view.render_size = (int(PAGE_WIDTH), int(PAGE_HEIGHT))
-    view.fit_fraction = 0.90
     view.options = options
     view.rotation = rotation
+    view.pan_x = 0.0
+    view.pan_y = 0.0
+    view.fit_fraction = 0.90
     view.set_data(triangle, parts, height_name, height_active)
+
+    target_width = PAGE_WIDTH * 0.90
+    target_height = PAGE_HEIGHT * 0.90
+    low = 0.05
+    high = 0.90
+    for _ in range(28):
+        middle = (low + high) / 2.0
+        view.fit_fraction = middle
+        view.redraw()
+        box = _content_bbox(view)
+        if (
+            box is not None
+            and box[2] - box[0] <= target_width
+            and box[3] - box[1] <= target_height
+        ):
+            low = middle
+        else:
+            high = middle
+
+    view.fit_fraction = low
+    view.redraw()
+    box = _content_bbox(view)
+    if box is not None:
+        view.pan_x = PAGE_WIDTH / 2.0 - (box[0] + box[2]) / 2.0
+        view.pan_y = PAGE_HEIGHT / 2.0 - (box[1] + box[3]) / 2.0
+        view.redraw()
+
     content = _canvas_content(view)
     view.destroy()
     return content
@@ -383,34 +448,71 @@ def _main_page(
 
 def _part_page(
     master: tk.Misc,
-    part: Part,
+    page_parts: list[Part],
     axis: Point,
     extras: tuple[float, float, float],
     options: DisplayOptions,
 ) -> bytes:
     canvas = _make_canvas(master)
-    margin = 22.0
-    canvas.create_text(
-        margin,
-        20.0,
-        text=f"Teil {part.index}",
-        fill="#12263f",
-        font=("Segoe UI", 14, "bold"),
-        anchor="nw",
-    )
-    draw_part(
-        canvas,
-        part,
-        (margin, 44.0, PAGE_WIDTH - margin, PAGE_HEIGHT - margin),
-        axis,
-        extras[0],
-        extras[1],
-        extras[2],
-        compact=False,
-        tags=("part",),
-        options=options,
-        rotate_clockwise=True,
-    )
+    margin = 18.0
+    gap = 8.0
+    top_margin = 24.0
+    cell_width = (PAGE_WIDTH - margin * 2 - gap) / 2.0
+    cell_height = (PAGE_HEIGHT - top_margin - margin - gap) / 2.0
+    for index, part in enumerate(page_parts):
+        column = index % 2
+        row = index // 2
+        x0 = margin + column * (cell_width + gap)
+        y0 = top_margin + row * (cell_height + gap)
+        canvas.create_rectangle(
+            x0,
+            y0,
+            x0 + cell_width,
+            y0 + cell_height,
+            fill="",
+            outline="#b8c4d4",
+            width=1,
+        )
+        canvas.create_text(
+            x0 + 8.0,
+            y0 + 5.0,
+            text=f"Teil {part.index}",
+            fill="#12263f",
+            font=("Segoe UI", 11, "bold"),
+            anchor="nw",
+        )
+        bbox = (x0, y0 + 24.0, x0 + cell_width, y0 + cell_height)
+        available_width = bbox[2] - bbox[0]
+        available_height = bbox[3] - bbox[1]
+        pad_x = max(16.0, min(34.0, available_width * 0.11))
+        pad_y = max(16.0, min(46.0, available_height * 0.115))
+        tag = f"part-frame-{part.index}"
+        frame = (x0 + 6.0, y0 + 6.0, x0 + cell_width - 6.0, y0 + cell_height - 6.0)
+        for _ in range(20):
+            canvas.delete(tag)
+            draw_part(
+                canvas,
+                part,
+                bbox,
+                axis,
+                extras[0],
+                extras[1],
+                extras[2],
+                compact=False,
+                tags=(tag,),
+                options=options,
+                rotate_clockwise=True,
+                padding=(pad_x, pad_x * 0.92, pad_y, pad_y),
+            )
+            box = _tag_bbox(canvas, tag)
+            if box is None:
+                break
+            overflow_x = max(0.0, frame[0] - box[0], box[2] - frame[2])
+            overflow_y = max(0.0, frame[1] - box[1], box[3] - frame[3])
+            if overflow_x <= 0.0 and overflow_y <= 0.0:
+                break
+            pad_x = min(available_width * 0.40, pad_x + overflow_x + 2.0)
+            pad_y = min(available_height * 0.40, pad_y + overflow_y + 2.0)
     content = _canvas_content(canvas)
     canvas.destroy()
     return content
@@ -448,11 +550,11 @@ def export_pdf(
         ]
         if parts:
             axis = height_axis(triangle, height_name)
-            for part in parts:
+            for start in range(0, len(parts), PARTS_PER_PAGE):
                 pages.append(
                     _part_page(
                         master,
-                        part,
+                        parts[start : start + PARTS_PER_PAGE],
                         axis,
                         extras,
                         options,
