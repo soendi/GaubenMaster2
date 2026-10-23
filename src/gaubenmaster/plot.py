@@ -899,19 +899,44 @@ class TriangleView(tk.Canvas):
             font=font,
             anchor=anchor,
             justify="center",
-            angle=angle,
             tags=tags,
         )
         box = self.bbox(identifier)
         if not box:
             return
-        background = self.create_rectangle(
-            box[0] - 2,
-            box[1] - 1,
-            box[2] + 2,
-            box[3] + 1,
-            fill=BACKGROUND,
-            outline="",
-            tags=tags,
+        corners = (
+            (box[0] - 2, box[1] - 1),
+            (box[2] + 2, box[1] - 1),
+            (box[2] + 2, box[3] + 1),
+            (box[0] - 2, box[3] + 1),
         )
+        if angle:
+            self.itemconfigure(identifier, angle=angle)
+            radians = math.radians(angle)
+            cosine = math.cos(radians)
+            sine = math.sin(radians)
+            points = []
+            for corner_x, corner_y in corners:
+                offset_x = corner_x - x
+                offset_y = corner_y - y
+                points.extend(
+                    (
+                        x + offset_x * cosine + offset_y * sine,
+                        y - offset_x * sine + offset_y * cosine,
+                    )
+                )
+            background = self.create_polygon(
+                *points,
+                fill=BACKGROUND,
+                outline="",
+                tags=tags,
+            )
+        else:
+            background = self.create_rectangle(
+                *corners[0],
+                *corners[2],
+                fill=BACKGROUND,
+                outline="",
+                tags=tags,
+            )
         self.tag_lower(background, identifier)
