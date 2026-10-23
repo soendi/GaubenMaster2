@@ -189,7 +189,7 @@ class UiSmokeTests(unittest.TestCase):
             )
             data = path.read_bytes()
         self.assertTrue(data.startswith(b"%PDF-1.4"))
-        self.assertEqual(data.count(b"/Type /Page "), 2)
+        self.assertEqual(data.count(b"/Type /Page "), 5)
         self.assertIn(b"Teil 1", data)
 
     def test_invalid_input_shows_error(self):

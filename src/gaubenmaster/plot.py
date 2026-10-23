@@ -265,6 +265,7 @@ class TriangleView(tk.Canvas):
         self.pan_x = 0.0
         self.pan_y = 0.0
         self.options = DisplayOptions()
+        self.fit_fraction = 0.80
         self.render_size: tuple[int, int] | None = None
         self.hovered: int | None = None
         self.on_hover: Callable[[Part | None], None] | None = None
@@ -442,7 +443,10 @@ class TriangleView(tk.Canvas):
         max_y = max(point[1] for point in rotated)
         span_x = max(max_x - min_x, 1e-6)
         span_y = max(max_y - min_y, 1e-6)
-        scale = min(width * 0.80 / span_x, height * 0.80 / span_y) * self.zoom
+        scale = min(
+            width * self.fit_fraction / span_x,
+            height * self.fit_fraction / span_y,
+        ) * self.zoom
         bbox_center_x = (min_x + max_x) / 2.0
         bbox_center_y = (min_y + max_y) / 2.0
         return (

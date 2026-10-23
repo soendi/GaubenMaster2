@@ -14,7 +14,6 @@ from .plot import DisplayOptions, TriangleView
 
 PAGE_WIDTH = 595.0
 PAGE_HEIGHT = 842.0
-PARTS_PER_PAGE = 4
 
 
 def _rgb(color: str) -> tuple[float, float, float] | None:
@@ -373,6 +372,7 @@ def _main_page(
 ) -> bytes:
     view = TriangleView(master)
     view.render_size = (int(PAGE_WIDTH), int(PAGE_HEIGHT))
+    view.fit_fraction = 0.90
     view.options = options
     view.rotation = rotation
     view.set_data(triangle, parts, height_name, height_active)
@@ -383,43 +383,34 @@ def _main_page(
 
 def _part_page(
     master: tk.Misc,
-    page_parts: list[Part],
+    part: Part,
     axis: Point,
     extras: tuple[float, float, float],
     options: DisplayOptions,
 ) -> bytes:
     canvas = _make_canvas(master)
     margin = 22.0
-    gap = 10.0
-    top_margin = 28.0
-    cell_width = (PAGE_WIDTH - margin * 2 - gap) / 2.0
-    cell_height = (PAGE_HEIGHT - top_margin - margin - gap) / 2.0
-    for index, part in enumerate(page_parts):
-        column = index % 2
-        row = index // 2
-        x0 = margin + column * (cell_width + gap)
-        y0 = top_margin + row * (cell_height + gap)
-        canvas.create_text(
-            x0 + 4.0,
-            y0 + 2.0,
-            text=f"Teil {part.index}",
-            fill="#12263f",
-            font=("Segoe UI", 11, "bold"),
-            anchor="nw",
-        )
-        draw_part(
-            canvas,
-            part,
-            (x0, y0 + 18.0, x0 + cell_width, y0 + cell_height),
-            axis,
-            extras[0],
-            extras[1],
-            extras[2],
-            compact=True,
-            tags=("part",),
-            options=options,
-            rotate_clockwise=True,
-        )
+    canvas.create_text(
+        margin,
+        20.0,
+        text=f"Teil {part.index}",
+        fill="#12263f",
+        font=("Segoe UI", 14, "bold"),
+        anchor="nw",
+    )
+    draw_part(
+        canvas,
+        part,
+        (margin, 44.0, PAGE_WIDTH - margin, PAGE_HEIGHT - margin),
+        axis,
+        extras[0],
+        extras[1],
+        extras[2],
+        compact=False,
+        tags=("part",),
+        options=options,
+        rotate_clockwise=True,
+    )
     content = _canvas_content(canvas)
     canvas.destroy()
     return content
@@ -457,11 +448,11 @@ def export_pdf(
         ]
         if parts:
             axis = height_axis(triangle, height_name)
-            for start in range(0, len(parts), PARTS_PER_PAGE):
+            for part in parts:
                 pages.append(
                     _part_page(
                         master,
-                        parts[start : start + PARTS_PER_PAGE],
+                        part,
                         axis,
                         extras,
                         options,

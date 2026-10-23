@@ -18,7 +18,7 @@ prüfsummengesichertes Update über GitHub Releases.
 - Um den Zuschnitt erweiterte, bemaßte Einzelteil-Zeichnungen mit Fv/Fh-Falzen
 - Doppelklick auf ein Einzelteil öffnet eine Großansicht im 800 × 800-Pixel-Fenster
 - Zuschnittangaben für Länge sowie vorderen und hinteren Falz
-- PDF-Export mit Hauptzeichnung und allen Einzelteilen (vier pro A4-Seite)
+- PDF-Export mit Hauptzeichnung und allen Einzelteilen (Großansicht, ein Teil pro A4-Seite)
 - Update-Prüfung beim Start mit Benachrichtigung und stiller MSI-Installation
 - Einstellungen für Auto-Update, Prüfintervall und Repository-URL
 
