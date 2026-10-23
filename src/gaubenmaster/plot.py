@@ -5,8 +5,10 @@ from __future__ import annotations
 import math
 import tkinter as tk
 import tkinter.font as tkfont
+from dataclasses import dataclass
 from typing import Callable
 
+from .formatting import format_area
 from .geometry import Part, Point, Triangle
 
 BACKGROUND = "#f6f8fb"
@@ -16,6 +18,21 @@ VERTEX = "#d62728"
 ANGLE = "#d62728"
 HEIGHT = "#178a3a"
 TEXT = "#12263f"
+
+@dataclass(frozen=True)
+class DisplayOptions:
+    """Sichtbarkeit und Schriftgroesse der Zeichnungsbeschriftungen."""
+
+    main_dimensions: bool = True
+    main_angles: bool = True
+    main_angle_arcs: bool = True
+    part_dimensions: bool = True
+    part_angles: bool = True
+    part_areas: bool = True
+    part_numbers: bool = True
+    height: bool = True
+    font_size: int = 9
+
 
 TAB20 = (
     "#1f77b4",
@@ -247,8 +264,11 @@ class TriangleView(tk.Canvas):
         self.zoom = 1.0
         self.pan_x = 0.0
         self.pan_y = 0.0
+        self.options = DisplayOptions()
+        self.render_size: tuple[int, int] | None = None
         self.hovered: int | None = None
         self.on_hover: Callable[[Part | None], None] | None = None
+        self.on_zoom: Callable[[float], None] | None = None
         self._drag_mode: str | None = None
         self._drag_last: Point | None = None
         self._drag_center: Point | None = None
@@ -285,12 +305,36 @@ class TriangleView(tk.Canvas):
             self.hovered = None
         self.redraw()
 
+    def set_display_options(self, options: DisplayOptions) -> None:
+        self.options = options
+        self.redraw()
+
+    def set_zoom(self, zoom: float) -> None:
+        self.zoom = max(0.25, min(8.0, zoom))
+        self.redraw()
+
+    def _width(self) -> float:
+        if self.render_size is not None:
+            return float(self.render_size[0])
+        return float(max(1, self.winfo_width()))
+
+    def _height(self) -> float:
+        if self.render_size is not None:
+            return float(self.render_size[1])
+        return float(max(1, self.winfo_height()))
+
+    def _label_font(self, *, bold: bool = False) -> tuple[str, int, str]:
+        size = max(4, min(72, int(round(self.options.font_size * self.zoom))))
+        return ("Segoe UI", size, "bold") if bold else ("Segoe UI", size)
+
     def reset_view(self) -> None:
         self.rotation = 0.0
         self.zoom = 1.0
         self.pan_x = 0.0
         self.pan_y = 0.0
         self.redraw()
+        if self.on_zoom:
+            self.on_zoom(self.zoom)
 
     def _on_press(self, event: tk.Event) -> None:
         self._drag_last = (event.x, event.y)
@@ -331,8 +375,8 @@ class TriangleView(tk.Canvas):
 
     def _screen_center(self) -> Point:
         return (
-            self.winfo_width() / 2.0 + self.pan_x,
-            self.winfo_height() / 2.0 + self.pan_y,
+            self._width() / 2.0 + self.pan_x,
+            self._height() / 2.0 + self.pan_y,
         )
 
     def _on_motion(self, event: tk.Event) -> None:
@@ -368,6 +412,8 @@ class TriangleView(tk.Canvas):
         factor = 1.12 if direction > 0 else 1 / 1.12
         self.zoom = max(0.25, min(8.0, self.zoom * factor))
         self.redraw()
+        if self.on_zoom:
+            self.on_zoom(self.zoom)
 
     def _find_part(self, index: int | None) -> Part | None:
         if index is None:
@@ -377,8 +423,8 @@ class TriangleView(tk.Canvas):
     def _build_transform(self) -> tuple[float, float, float, float, float] | None:
         if not self.triangle:
             return None
-        width = max(1, self.winfo_width())
-        height = max(1, self.winfo_height())
+        width = self._width()
+        height = self._height()
         vertices = self.triangle.vertices
         center_x = sum(point[0] for point in vertices) / 3.0
         center_y = sum(point[1] for point in vertices) / 3.0
@@ -427,8 +473,8 @@ class TriangleView(tk.Canvas):
         rotated_x = dx * cosine - dy * sine - bbox_center_x
         rotated_y = dx * sine + dy * cosine - bbox_center_y
         return (
-            self.winfo_width() / 2.0 + self.pan_x + rotated_x * scale,
-            self.winfo_height() / 2.0 + self.pan_y - rotated_y * scale,
+            self._width() / 2.0 + self.pan_x + rotated_x * scale,
+            self._height() / 2.0 + self.pan_y - rotated_y * scale,
         )
 
     def _line(self, point1: Point, point2: Point) -> list[float]:
@@ -441,8 +487,8 @@ class TriangleView(tk.Canvas):
         self.create_rectangle(
             0,
             0,
-            max(1, self.winfo_width()),
-            max(1, self.winfo_height()),
+            self._width(),
+            self._height(),
             fill=BACKGROUND,
             outline="",
         )
@@ -451,8 +497,8 @@ class TriangleView(tk.Canvas):
         self._transform = self._build_transform()
         if not self.triangle:
             self.create_text(
-                max(1, self.winfo_width()) / 2,
-                max(1, self.winfo_height()) / 2,
+                self._width() / 2,
+                self._height() / 2,
                 text="Seiten eingeben und „Berechnen“ drücken.",
                 fill="#6b7a90",
                 font=("Segoe UI", 12),
@@ -471,13 +517,17 @@ class TriangleView(tk.Canvas):
         if self.height_active and self.parts:
             self._draw_parts()
 
-        if self.height_active:
+        if self.height_active and self.options.height:
             self._draw_height()
 
         self._draw_triangle_outline(screen_vertices)
-        self._draw_sides()
+        if self.options.main_dimensions:
+            self._draw_sides()
         self._draw_vertices()
-        self._draw_angles(show_labels=not (self.height_active and self.parts))
+        self._draw_angles(
+            show_labels=self.options.main_angles,
+            show_arcs=self.options.main_angle_arcs,
+        )
 
     def _draw_triangle_outline(self, screen_vertices: list[Point]) -> None:
         self.create_polygon(
@@ -527,72 +577,78 @@ class TriangleView(tk.Canvas):
     ) -> None:
         centroid = self._to_screen(part.centroid)
         label_color = blend(color, alpha, "#0d1b2a")
-        font_size = 8 if len(self.parts) <= 10 else 6
-        self.create_text(
-            centroid[0],
-            centroid[1] - 4,
-            text=f"Teil {part.index}\n{part.area_cm2:.2f} cm²",
-            fill=label_color,
-            font=("Segoe UI", font_size, "bold"),
-            justify="center",
-        )
+        lines: list[str] = []
+        if self.options.part_numbers:
+            lines.append(f"Teil {part.index}")
+        if self.options.part_areas:
+            lines.append(format_area(part.area_cm2))
+        if lines:
+            self.create_text(
+                centroid[0],
+                centroid[1] - 4,
+                text="\n".join(lines),
+                fill=label_color,
+                font=self._label_font(bold=True),
+                justify="center",
+            )
 
-        edge_font_size = max(8, math.ceil((font_size - 1) * 1.5))
-        for index, edge in enumerate(part.edges_cm):
-            p1 = screen[index]
-            p2 = screen[(index + 1) % len(screen)]
-            key = tuple(
-                sorted(
-                    (
-                        (round(p1[0], 1), round(p1[1], 1)),
-                        (round(p2[0], 1), round(p2[1], 1)),
+        if self.options.part_dimensions:
+            for index, edge in enumerate(part.edges_cm):
+                p1 = screen[index]
+                p2 = screen[(index + 1) % len(screen)]
+                key = tuple(
+                    sorted(
+                        (
+                            (round(p1[0], 1), round(p1[1], 1)),
+                            (round(p2[0], 1), round(p2[1], 1)),
+                        )
                     )
                 )
-            )
-            if key in self._labeled_edges:
-                continue
-            dx = p2[0] - p1[0]
-            dy = p2[1] - p1[1]
-            length = math.hypot(dx, dy)
-            if length < 1.0:
-                continue
-            self._labeled_edges.add(key)
-            midpoint = ((p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0)
-            normal_x = -dy / length
-            normal_y = dx / length
-            toward_x = centroid[0] - midpoint[0]
-            toward_y = centroid[1] - midpoint[1]
-            if normal_x * toward_x + normal_y * toward_y < 0:
-                normal_x = -normal_x
-                normal_y = -normal_y
-            offset = max(8.0, edge_font_size * 0.95)
-            text_angle = math.degrees(math.atan2(dy, dx))
-            if text_angle > 90.0:
-                text_angle -= 180.0
-            elif text_angle <= -90.0:
-                text_angle += 180.0
-            self.create_text(
-                midpoint[0] + normal_x * offset,
-                midpoint[1] + normal_y * offset,
-                text=f"{edge:.2f}",
-                fill=label_color,
-                font=("Segoe UI", edge_font_size),
-                angle=-text_angle,
-            )
+                if key in self._labeled_edges:
+                    continue
+                dx = p2[0] - p1[0]
+                dy = p2[1] - p1[1]
+                length = math.hypot(dx, dy)
+                if length < 1.0:
+                    continue
+                self._labeled_edges.add(key)
+                midpoint = ((p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0)
+                normal_x = -dy / length
+                normal_y = dx / length
+                toward_x = centroid[0] - midpoint[0]
+                toward_y = centroid[1] - midpoint[1]
+                if normal_x * toward_x + normal_y * toward_y < 0:
+                    normal_x = -normal_x
+                    normal_y = -normal_y
+                offset = max(8.0, self.options.font_size * self.zoom * 0.95)
+                text_angle = math.degrees(math.atan2(dy, dx))
+                if text_angle > 90.0:
+                    text_angle -= 180.0
+                elif text_angle <= -90.0:
+                    text_angle += 180.0
+                self.create_text(
+                    midpoint[0] + normal_x * offset,
+                    midpoint[1] + normal_y * offset,
+                    text=f"{edge:.2f}",
+                    fill=label_color,
+                    font=self._label_font(),
+                    angle=-text_angle,
+                    tags=("part-dimension-label", f"part-dimension-label-{part.index}"),
+                )
 
-        angle_font_size = 7 if len(self.parts) <= 8 else 6
-        for index, angle in enumerate(part.angles_deg):
-            if angle <= 1.0 or angle >= 179.0:
-                continue
-            create_angle_label(
-                self,
-                screen,
-                index,
-                f"{angle:.1f}°",
-                ("Segoe UI", angle_font_size, "bold"),
-                ANGLE,
-                tags=("part-angle-label", f"part-angle-label-{part.index}"),
-            )
+        if self.options.part_angles:
+            for index, angle in enumerate(part.angles_deg):
+                if angle <= 1.0 or angle >= 179.0:
+                    continue
+                create_angle_label(
+                    self,
+                    screen,
+                    index,
+                    f"{angle:.1f}°",
+                    self._label_font(bold=True),
+                    ANGLE,
+                    tags=("part-angle-label", f"part-angle-label-{part.index}"),
+                )
 
     def _draw_height(self) -> None:
         if not self.triangle:
@@ -660,7 +716,7 @@ class TriangleView(tk.Canvas):
             label_y,
             label,
             HEIGHT,
-            ("Segoe UI", 8, "bold"),
+            self._label_font(bold=True),
             angle=-text_angle,
             tags=("height-label",),
         )
@@ -736,7 +792,7 @@ class TriangleView(tk.Canvas):
                 (line_start[1] + line_end[1]) / 2.0,
                 f"{name} = {value:.2f} cm",
                 "#0b2a55",
-                ("Segoe UI", 10, "bold"),
+                self._label_font(bold=True),
                 angle=-text_angle,
                 tags=("side-label", f"side-label-{name}"),
             )
@@ -769,13 +825,15 @@ class TriangleView(tk.Canvas):
                 screen[1] + dy / length * 17,
                 text=name,
                 fill=VERTEX,
-                font=("Segoe UI", 11, "bold"),
+                font=self._label_font(bold=True),
                 justify="center",
                 tags=("vertex-label",),
             )
 
-    def _draw_angles(self, *, show_labels: bool = True) -> None:
-        if not self.triangle:
+    def _draw_angles(
+        self, *, show_labels: bool = True, show_arcs: bool = True
+    ) -> None:
+        if not self.triangle or not (show_labels or show_arcs):
             return
         vertices = self.triangle.vertices
         screen_vertices = [self._to_screen(point) for point in vertices]
@@ -801,7 +859,10 @@ class TriangleView(tk.Canvas):
                         current[1] + math.sin(sample) * radius,
                     )
                 )
-            self.create_line(*points, fill=ANGLE, width=1.6)
+            if show_arcs:
+                self.create_line(
+                    *points, fill=ANGLE, width=1.6, tags=("angle-arc",)
+                )
             if not show_labels:
                 continue
             create_angle_label(
@@ -809,7 +870,7 @@ class TriangleView(tk.Canvas):
                 screen_vertices,
                 index,
                 f"{angle:.1f}°",
-                ("Segoe UI", 9, "bold"),
+                self._label_font(bold=True),
                 "#ffffff",
                 tags=("angle-label",),
             )

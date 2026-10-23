@@ -10,8 +10,9 @@ import threading
 import tkinter as tk
 import webbrowser
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
+from .formatting import format_area, format_number
 from .geometry import (
     GeometryError,
     HeightName,
@@ -30,7 +31,8 @@ from .paths import (
     save_settings,
     update_dir,
 )
-from .plot import TriangleView
+from .pdfexport import export_pdf
+from .plot import DisplayOptions, TriangleView
 from .updater import (
     REPO,
     UpdateError,
@@ -71,17 +73,6 @@ def _parse_number(value: str) -> float:
         return float(text.replace(",", "."))
     except ValueError:
         raise GeometryError(f"„{text}“ ist keine gültige Zahl.") from None
-
-
-def _format_number(value: float, digits: int = 2) -> str:
-    return f"{value:.{digits}f}".replace(".", ",")
-
-
-def _format_area_m2(area_cm2: float) -> str:
-    text = _format_number(area_cm2 / 10000.0, 6)
-    if "," in text:
-        text = text.rstrip("0").rstrip(",")
-    return text
 
 
 class UpdateToast(tk.Toplevel):
@@ -196,7 +187,7 @@ class SettingsDialog(tk.Toplevel):
         self.grab_set()
 
         self.auto_var = tk.BooleanVar(value=app.auto_update)
-        self.interval_var = tk.StringVar(value=_format_number(app.interval_hours, 1))
+        self.interval_var = tk.StringVar(value=format_number(app.interval_hours, 1))
         self.repo_var = tk.StringVar(value=f"https://github.com/{app.repo}")
 
         outer = ttk.Frame(self, padding=18)
@@ -281,6 +272,8 @@ class App:
         self.toast: UpdateToast | None = None
         self.triangle: Triangle | None = None
         self.parts: list[Part] = []
+        self.display_options = DisplayOptions()
+        self._syncing_zoom = False
 
         settings = load_settings()
         self.auto_update = bool(settings.get("auto_update", True))
@@ -301,6 +294,7 @@ class App:
 
         self._build_menu()
         self._build_layout()
+        self._apply_display()
         self._bind_keys()
         root.after(120, self._poll_events)
         root.after(2000, self._startup_check)
@@ -321,6 +315,12 @@ class App:
             label="Beenden", accelerator="Alt+F4", command=self._close
         )
         menu.add_cascade(label="Datei", menu=file_menu)
+
+        export_menu = tk.Menu(menu, tearoff=False)
+        export_menu.add_command(
+            label="Als PDF exportieren...", command=self._export_pdf
+        )
+        menu.add_cascade(label="Export", menu=export_menu)
 
         extras_menu = tk.Menu(menu, tearoff=False)
         extras_menu.add_command(
@@ -355,6 +355,41 @@ class App:
         self.left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         self.left.grid_propagate(False)
         self.left.pack_propagate(False)
+        self.left_footer = ttk.Frame(self.left)
+        self.left_footer.pack(side="bottom", fill="x")
+        self.left_body = ttk.Frame(self.left)
+        self.left_body.pack(side="top", fill="both", expand=True)
+        self.left_canvas = tk.Canvas(
+            self.left_body,
+            width=220,
+            highlightthickness=0,
+            borderwidth=0,
+            background=self.root.cget("background"),
+        )
+        self.left_scrollbar = ttk.Scrollbar(
+            self.left_body, orient="vertical", command=self.left_canvas.yview
+        )
+        self.left_scrollbar.pack(side="right", fill="y")
+        self.left_canvas.pack(side="left", fill="both", expand=True)
+        self.left_canvas.configure(yscrollcommand=self.left_scrollbar.set)
+        self.left_content = ttk.Frame(self.left_canvas)
+        self.left_window = self.left_canvas.create_window(
+            (0, 0), window=self.left_content, anchor="nw"
+        )
+        self.left_content.bind(
+            "<Configure>",
+            lambda _event: self.left_canvas.configure(
+                scrollregion=self.left_canvas.bbox("all")
+            ),
+        )
+        self.left_canvas.bind(
+            "<Configure>",
+            lambda event: self.left_canvas.itemconfigure(
+                self.left_window, width=event.width
+            ),
+        )
+        self.left_canvas.bind("<MouseWheel>", self._scroll_left)
+        self.left_content.bind("<MouseWheel>", self._scroll_left)
 
         center = ttk.Frame(outer)
         center.grid(row=0, column=1, sticky="nsew")
@@ -368,6 +403,7 @@ class App:
         self.view = TriangleView(center)
         self.view.grid(row=1, column=0, sticky="nsew")
         self.view.on_hover = self._on_part_hover
+        self.view.on_zoom = self._on_view_zoom
 
         self.parts_panel = ttk.LabelFrame(outer, text="Einzelteile", padding=8)
         self.parts_panel.grid(row=0, column=2, sticky="nsew", padx=(12, 0))
@@ -385,11 +421,12 @@ class App:
         self.parts_panel.grid_remove()
 
         self._build_left_panel()
+        self._bind_left_scroll(self.left_content)
         self._build_footer()
 
     def _build_left_panel(self) -> None:
-        header = ttk.Frame(self.left)
-        header.pack(fill="x", pady=(0, 10))
+        header = ttk.Frame(self.left_content)
+        header.pack(fill="x", pady=(0, 6))
         ttk.Label(
             header, text="GaubenMaster2", font=("Segoe UI", 19, "bold")
         ).pack(anchor="w")
@@ -397,12 +434,14 @@ class App:
             header, text=f"Version {__version__}", foreground="#5b6878"
         ).pack(anchor="w")
 
-        input_frame = ttk.LabelFrame(self.left, text="Seitenlängen (cm)", padding=10)
-        input_frame.pack(fill="x", pady=(0, 10))
+        input_frame = ttk.LabelFrame(
+            self.left_content, text="Seitenlängen (cm)", padding=8
+        )
+        input_frame.pack(fill="x", pady=(0, 6))
         self.side_vars: dict[str, tk.StringVar] = {}
         for index, (name, value) in enumerate((("a", "3,0"), ("b", "4,0"), ("c", "5,0"))):
             ttk.Label(input_frame, text=f"Seite {name}").grid(
-                row=index, column=0, sticky="w", pady=3
+                row=index, column=0, sticky="w", pady=2
             )
             variable = tk.StringVar(value=value)
             self.side_vars[name] = variable
@@ -412,7 +451,7 @@ class App:
                 width=12,
                 justify="right",
             )
-            entry.grid(row=index, column=1, sticky="e", padx=(10, 6), pady=3)
+            entry.grid(row=index, column=1, sticky="e", padx=(10, 6), pady=2)
             ttk.Label(input_frame, text="cm").grid(row=index, column=2, sticky="w")
             variable.trace_add("write", lambda *_args: self._live_validate())
             if name == "a":
@@ -423,11 +462,11 @@ class App:
             input_frame, text="", wraplength=170, justify="left"
         )
         self.validation.grid(
-            row=3, column=0, columnspan=3, sticky="w", pady=(8, 2)
+            row=3, column=0, columnspan=3, sticky="w", pady=(6, 2)
         )
 
         buttons = ttk.Frame(input_frame)
-        buttons.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        buttons.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(6, 0))
         buttons.columnconfigure(0, weight=1)
         buttons.columnconfigure(1, weight=1)
         ttk.Button(buttons, text="Berechnen", command=self._calculate).grid(
@@ -438,21 +477,21 @@ class App:
         )
         ttk.Button(
             input_frame, text="Ansicht zurücksetzen", command=self.view.reset_view
-        ).grid(row=5, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        ).grid(row=5, column=0, columnspan=3, sticky="ew", pady=(6, 0))
 
         height_frame = ttk.LabelFrame(
-            self.left, text="Höhen-Teilung", padding=10
+            self.left_content, text="Höhen-Teilung", padding=8
         )
-        height_frame.pack(fill="x", pady=(0, 10))
+        height_frame.pack(fill="x", pady=(0, 6))
         self.height_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             height_frame,
             text="Höhen-Teilung anzeigen",
             variable=self.height_var,
             command=self._height_toggle,
-        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
 
-        ttk.Label(height_frame, text="Höhe").grid(row=1, column=0, sticky="w", pady=3)
+        ttk.Label(height_frame, text="Höhe").grid(row=1, column=0, sticky="w", pady=2)
         self.height_choice = tk.StringVar(value="ha (Seite a)")
         self.height_combo = ttk.Combobox(
             height_frame,
@@ -461,12 +500,12 @@ class App:
             state="readonly",
             width=15,
         )
-        self.height_combo.grid(row=1, column=1, sticky="e", pady=3)
+        self.height_combo.grid(row=1, column=1, sticky="e", pady=2)
         self.height_combo.bind("<<ComboboxSelected>>", lambda _event: self._height_changed())
 
         self.mode_var = tk.StringVar(value="count")
         modes = ttk.Frame(height_frame)
-        modes.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 2))
+        modes.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 2))
         ttk.Radiobutton(
             modes,
             text="In n Teile teilen",
@@ -483,7 +522,7 @@ class App:
         ).pack(anchor="w")
 
         self.param_label = ttk.Label(height_frame, text="Anzahl Teile")
-        self.param_label.grid(row=3, column=0, sticky="w", pady=3)
+        self.param_label.grid(row=3, column=0, sticky="w", pady=2)
         self.param_var = tk.StringVar(value="4")
         self.param_spin = ttk.Spinbox(
             height_frame,
@@ -494,12 +533,12 @@ class App:
             textvariable=self.param_var,
             command=self._height_changed,
         )
-        self.param_spin.grid(row=3, column=1, sticky="e", pady=3)
+        self.param_spin.grid(row=3, column=1, sticky="e", pady=2)
         self.param_var.trace_add("write", lambda *_args: self._schedule_height())
 
         ttk.Label(
             height_frame, text="Einzelteil-Zuschnitt", font=("Segoe UI", 9, "bold")
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 2))
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 2))
         self.extra_vars: dict[str, tk.StringVar] = {}
         for index, (key, label) in enumerate(
             (
@@ -510,7 +549,7 @@ class App:
             start=5,
         ):
             ttk.Label(height_frame, text=label).grid(
-                row=index, column=0, sticky="w", pady=2
+                row=index, column=0, sticky="w", pady=1
             )
             variable = tk.StringVar(value="0,0")
             self.extra_vars[key] = variable
@@ -522,7 +561,7 @@ class App:
                 width=8,
                 textvariable=variable,
                 command=self._height_changed,
-            ).grid(row=index, column=1, sticky="e", pady=2)
+            ).grid(row=index, column=1, sticky="e", pady=1)
             variable.trace_add("write", lambda *_args: self._schedule_height())
         self.height_status = ttk.Label(
             height_frame, text="", foreground="#5b6878", wraplength=170
@@ -531,13 +570,62 @@ class App:
             row=8, column=0, columnspan=2, sticky="w", pady=(6, 0)
         )
 
-        update_frame = ttk.LabelFrame(self.left, text="Updates", padding=10)
-        update_frame.pack(fill="x")
-        self.update_button = ttk.Button(
-            update_frame, text="Nach Updates suchen", command=self._update_action
+        display_frame = ttk.LabelFrame(
+            self.left_content, text="Anzeige", padding=6
         )
-        self.update_button.pack(fill="x")
-        ttk.Button(update_frame, text="Beenden", command=self._close).pack(
+        display_frame.pack(fill="x", pady=(0, 4))
+        display_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(display_frame, text="Zoomfaktor").grid(
+            row=0, column=0, sticky="w", pady=1
+        )
+        self.zoom_var = tk.StringVar(value="1,00")
+        self.zoom_var.trace_add("write", lambda *_args: self._zoom_field_changed())
+        ttk.Spinbox(
+            display_frame,
+            from_=0.25,
+            to=8.0,
+            increment=0.25,
+            width=7,
+            textvariable=self.zoom_var,
+        ).grid(row=0, column=1, sticky="e", pady=1)
+
+        ttk.Label(display_frame, text="Schriftgrösse").grid(
+            row=1, column=0, sticky="w", pady=1
+        )
+        self.font_var = tk.StringVar(value="9")
+        self.font_var.trace_add("write", lambda *_args: self._display_changed())
+        ttk.Spinbox(
+            display_frame,
+            from_=4,
+            to=40,
+            increment=1,
+            width=7,
+            textvariable=self.font_var,
+        ).grid(row=1, column=1, sticky="e", pady=1)
+
+        self.option_vars: dict[str, tk.BooleanVar] = {}
+        options = (
+            ("main_dimensions", "Hauptdreieck Aussenmass"),
+            ("main_angles", "Hauptdreieck Winkelmass"),
+            ("main_angle_arcs", "Hauptdreieck Winkelkreise"),
+            ("part_dimensions", "Einzelteile Aussenmass"),
+            ("part_angles", "Einzelteile Winkelmass"),
+            ("part_areas", "Einzelteile Fläche"),
+            ("part_numbers", "Einzelteile Teil-Nr."),
+            ("height", "Höhe"),
+        )
+        for index, (key, label) in enumerate(options, start=2):
+            variable = tk.BooleanVar(value=True)
+            self.option_vars[key] = variable
+            ttk.Checkbutton(
+                display_frame,
+                text=label,
+                variable=variable,
+                command=self._display_changed,
+            ).grid(row=index, column=0, columnspan=2, sticky="w")
+
+        ttk.Button(self.left_footer, text="Beenden", command=self._close).pack(
             fill="x", pady=(8, 0)
         )
 
@@ -545,12 +633,13 @@ class App:
         footer = ttk.Frame(self.root, padding=(14, 6, 14, 8))
         footer.grid(row=1, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
+        footer.columnconfigure(1, minsize=110)
         self.status = ttk.Label(footer, text="Bereit.")
         self.status.grid(row=0, column=0, sticky="w")
         self.progress = ttk.Progressbar(
-            footer, mode="determinate", maximum=100, length=160
+            footer, mode="determinate", maximum=100, length=96
         )
-        self.progress.grid(row=0, column=1, padx=10, sticky="e")
+        self.progress.grid(row=0, column=1, padx=6, sticky="e")
         self.progress.grid_remove()
         self.activity = ttk.Label(
             footer, text=f"Version {__version__}", foreground="#5b6878"
@@ -562,6 +651,52 @@ class App:
         self.root.bind("<Control-N>", lambda _event: self._reset())
         self.root.bind("<F5>", lambda _event: self._calculate())
         self.root.bind("<Return>", lambda _event: self._calculate())
+
+    # --------------------------------------------------------------- Anzeige
+    def _scroll_left(self, event: tk.Event) -> str:
+        self.left_canvas.yview_scroll(-3 if event.delta > 0 else 3, "units")
+        return "break"
+
+    def _bind_left_scroll(self, widget: tk.Misc) -> None:
+        widget.bind("<MouseWheel>", self._scroll_left)
+        for child in widget.winfo_children():
+            self._bind_left_scroll(child)
+
+    def _zoom_field_changed(self) -> None:
+        if self._syncing_zoom:
+            return
+        self._apply_display()
+
+    def _on_view_zoom(self, zoom: float) -> None:
+        self._syncing_zoom = True
+        try:
+            self.zoom_var.set(format_number(zoom))
+        finally:
+            self._syncing_zoom = False
+
+    def _display_changed(self) -> None:
+        self._apply_display()
+
+    def _apply_display(self) -> None:
+        try:
+            zoom = max(0.25, min(8.0, float(self.zoom_var.get().replace(",", "."))))
+        except ValueError:
+            zoom = self.view.zoom
+        try:
+            font_size = int(round(float(self.font_var.get().replace(",", "."))))
+        except ValueError:
+            font_size = self.display_options.font_size
+        font_size = max(4, min(40, font_size))
+        self.display_options = DisplayOptions(
+            **{
+                key: variable.get()
+                for key, variable in self.option_vars.items()
+            },
+            font_size=font_size,
+        )
+        self.view.set_zoom(zoom)
+        self.view.set_display_options(self.display_options)
+        self.parts_list.set_display_options(self.display_options)
 
     # ------------------------------------------------------------ Berechnung
     def _read_sides(self) -> tuple[float, float, float]:
@@ -579,7 +714,7 @@ class App:
             return
         self._set_validation(
             True,
-            f"Gültiges Dreieck\nFläche {_format_area_m2(triangle.area)} m²",
+            f"Gültiges Dreieck\nFläche {format_area(triangle.area)}",
         )
 
     def _set_validation(self, valid: bool, message: str) -> None:
@@ -598,17 +733,17 @@ class App:
         self.triangle = triangle
         self._set_validation(
             True,
-            f"Gültiges Dreieck\nFläche {_format_area_m2(triangle.area)} m²",
+            f"Gültiges Dreieck\nFläche {format_area(triangle.area)}",
         )
         self.status.configure(
             text=(
-                f"a={_format_number(triangle.a)} cm   "
-                f"b={_format_number(triangle.b)} cm   "
-                f"c={_format_number(triangle.c)} cm   |   "
-                f"α={_format_number(triangle.alpha)}°   "
-                f"β={_format_number(triangle.beta)}°   "
-                f"γ={_format_number(triangle.gamma)}°   |   "
-                f"A={_format_area_m2(triangle.area)} m²"
+                f"a={format_number(triangle.a)} cm   "
+                f"b={format_number(triangle.b)} cm   "
+                f"c={format_number(triangle.c)} cm   |   "
+                f"α={format_number(triangle.alpha)}°   "
+                f"β={format_number(triangle.beta)}°   "
+                f"γ={format_number(triangle.gamma)}°   |   "
+                f"A={format_area(triangle.area)}"
             )
         )
         self._rebuild_view()
@@ -806,7 +941,6 @@ class App:
 
     def _start_check(self, silent: bool) -> None:
         self.checking = True
-        self.update_button.state(["disabled"])
         self._set_activity("Suche nach Updates …")
         threading.Thread(
             target=self._check_worker,
@@ -833,7 +967,6 @@ class App:
         self, info: UpdateInfo | None, error: str | None, silent: bool
     ) -> None:
         self.checking = False
-        self.update_button.state(["!disabled"])
         if error:
             self._set_activity("Update-Prüfung nicht möglich (offline?).")
             if not silent:
@@ -849,7 +982,6 @@ class App:
             return
         self.info = None
         self.installer = None
-        self.update_button.configure(text="Nach Updates suchen")
         self._set_activity("Version ist aktuell.")
         if not silent:
             messagebox.showinfo(
@@ -863,7 +995,6 @@ class App:
             self.installer = None
         self.info = info
         self._set_activity(f"Update {info.version} ist verfügbar.")
-        self.update_button.configure(text=f"Update {info.version} installieren")
         if self.toast:
             self.toast.close()
         notes = info.notes.strip()
@@ -885,7 +1016,6 @@ class App:
             return
         self.downloading = True
         self.info = info
-        self.update_button.state(["disabled"])
         self.progress.configure(mode="determinate", value=0)
         self.progress.grid()
         self._set_activity(f"Lade Update {info.version} herunter …")
@@ -933,7 +1063,6 @@ class App:
         self.downloading = False
         self.installer = Path(path)
         self.progress.grid_remove()
-        self.update_button.state(["!disabled"])
         self._set_activity(
             f"Update {self.info.version if self.info else ''} geprüft."
         )
@@ -989,7 +1118,6 @@ class App:
     def _on_download_error(self, message: str) -> None:
         self.downloading = False
         self.progress.grid_remove()
-        self.update_button.state(["!disabled"])
         self._set_activity("Update-Download fehlgeschlagen.")
         messagebox.showerror(
             "Update",
@@ -1019,6 +1147,43 @@ class App:
         self.root.after(100, self._poll_events)
 
     # ------------------------------------------------------------------ Dialoge
+    def _export_pdf(self) -> None:
+        if self.triangle is None:
+            messagebox.showwarning(
+                "PDF-Export",
+                "Bitte zuerst ein gültiges Dreieck berechnen.",
+                parent=self.root,
+            )
+            return
+        path = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Als PDF exportieren",
+            defaultextension=".pdf",
+            filetypes=(("PDF-Datei", "*.pdf"), ("Alle Dateien", "*.*")),
+            initialfile="GaubenMaster2.pdf",
+        )
+        if not path:
+            return
+        try:
+            export_pdf(
+                Path(path),
+                self.triangle,
+                self.parts,
+                self._height_name(),
+                self._extras(),
+                self.display_options,
+                rotation=self.view.rotation,
+                master=self.root,
+            )
+        except (OSError, ValueError) as exc:
+            messagebox.showerror(
+                "PDF-Export",
+                f"Die PDF-Datei konnte nicht geschrieben werden.\n\n{exc}",
+                parent=self.root,
+            )
+            return
+        self._set_activity(f"PDF gespeichert: {path}")
+
     def _open_repository(self) -> None:
         webbrowser.open(f"https://github.com/{self.repo}")
 

@@ -6,8 +6,15 @@ import math
 import tkinter as tk
 from tkinter import ttk
 
-from .geometry import Part, Point, Triangle
-from .plot import BACKGROUND, TAB20, blend, create_angle_label
+from .formatting import format_area, format_number
+from .geometry import Part, Point, Triangle, distance, polygon_area
+from .plot import (
+    BACKGROUND,
+    TAB20,
+    DisplayOptions,
+    blend,
+    create_angle_label,
+)
 
 CARD_BACKGROUND = "#ffffff"
 CARD_BORDER = "#d7e2ee"
@@ -18,7 +25,7 @@ CARD_HEIGHT = 270
 
 
 def _format_length(value: float) -> str:
-    return f"{value:.2f}".replace(".", ",")
+    return format_number(value)
 
 
 def height_axis(triangle: Triangle, height_name: str) -> Point:
@@ -39,6 +46,36 @@ def _local_points(points: tuple[Point, ...], axis: Point) -> list[Point]:
     for x, y in points:
         result.append((x * vx + y * vy, x * ux + y * uy))
     return result
+
+
+def _rotate_points(points: list[Point], clockwise: bool) -> list[Point]:
+    if not clockwise:
+        return list(points)
+    return [(y, -x) for x, y in points]
+
+
+def _text_angle(p1: Point, p2: Point) -> float:
+    angle = math.degrees(math.atan2(p2[1] - p1[1], p2[0] - p1[0]))
+    if angle > 90.0:
+        angle -= 180.0
+    elif angle <= -90.0:
+        angle += 180.0
+    return -angle
+
+
+def _normal_away(p1: Point, p2: Point, center: Point) -> Point:
+    dx = p2[0] - p1[0]
+    dy = p2[1] - p1[1]
+    length = math.hypot(dx, dy)
+    if length < 1e-9:
+        return (0.0, -1.0)
+    nx = -dy / length
+    ny = dx / length
+    midpoint = ((p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0)
+    if nx * (center[0] - midpoint[0]) + ny * (center[1] - midpoint[1]) > 0.0:
+        nx = -nx
+        ny = -ny
+    return (nx, ny)
 
 
 def _draw_dimension_line(
@@ -81,8 +118,6 @@ def _text_with_background(
     *,
     angle: float,
     tags: tuple[str, ...],
-    background: str,
-    anchor: str = "center",
 ) -> None:
     canvas.create_text(
         x,
@@ -91,7 +126,7 @@ def _text_with_background(
         fill=fill,
         font=font,
         angle=angle,
-        anchor=anchor,
+        anchor="center",
         justify="center",
         tags=tags,
     )
@@ -124,17 +159,7 @@ def _draw_side_dimensions(
         edge_length = math.hypot(dx, dy)
         if edge_length < 1e-9:
             continue
-        normal_x = -dy / edge_length
-        normal_y = dx / edge_length
-        midpoint = (
-            (point1[0] + point2[0]) / 2.0,
-            (point1[1] + point2[1]) / 2.0,
-        )
-        if normal_x * (midpoint[0] - center[0]) + normal_y * (
-            midpoint[1] - center[1]
-        ) < 0.0:
-            normal_x = -normal_x
-            normal_y = -normal_y
+        normal_x, normal_y = _normal_away(point1, point2, center)
         line_start = (
             point1[0] + normal_x * offset,
             point1[1] + normal_y * offset,
@@ -152,11 +177,6 @@ def _draw_side_dimensions(
             (*tags, f"side-dimension-{index}"),
             tick=tick,
         )
-        text_angle = math.degrees(math.atan2(dy, dx))
-        if text_angle > 90.0:
-            text_angle -= 180.0
-        elif text_angle <= -90.0:
-            text_angle += 180.0
         _text_with_background(
             canvas,
             (line_start[0] + line_end[0]) / 2.0 + normal_x * label_gap,
@@ -164,9 +184,8 @@ def _draw_side_dimensions(
             _format_length(length),
             DIMENSION,
             font,
-            angle=-text_angle,
+            angle=_text_angle(point1, point2),
             tags=(*tags, f"side-label-{index}"),
-            background=background,
         )
 
 
@@ -193,24 +212,18 @@ def _draw_part_angles(
         )
 
 
-def draw_part(
-    canvas: tk.Canvas,
-    part: Part,
-    bbox: tuple[float, float, float, float],
-    axis: Point,
+def _extended_geometry(
+    points: list[Point],
     extra_length: float,
     fold_front: float,
     fold_back: float,
-    *,
-    compact: bool,
-    tags: tuple[str, ...] = (),
-    background: str = BACKGROUND,
-) -> None:
-    x0, y0, x1, y1 = bbox
-    if x1 - x0 < 40 or y1 - y0 < 40:
-        return
-
-    points = _local_points(part.points, axis)
+) -> tuple[
+    list[Point],
+    float,
+    float,
+    float,
+    list[tuple[Point, Point, Point, str]],
+]:
     min_x = min(point[0] for point in points)
     max_x = max(point[0] for point in points)
     min_y = min(point[1] for point in points)
@@ -220,8 +233,8 @@ def draw_part(
     fold_top = max(0.0, fold_front)
     fold_bottom = max(0.0, fold_back)
     center_y = (min_y + max_y) / 2.0
-
     center_x = sum(point[0] for point in points) / len(points)
+
     edge_offsets: list[Point] = []
     if len(points) == 3:
         base_index = next(
@@ -307,6 +320,117 @@ def draw_part(
             )
         )
 
+    extra_pairs: list[tuple[Point, Point, Point, str]] = []
+    if half_extra > 0.0:
+        base_edge = None
+        if len(points) == 3:
+            for index in range(3):
+                first = points[index]
+                second = points[(index + 1) % 3]
+                if abs(first[1] - second[1]) < 1e-9:
+                    base_edge = (first, second)
+                    break
+
+        if base_edge is not None:
+            left, right = sorted(base_edge, key=lambda point: point[0])
+            base_y = left[1]
+            extended_base_y = (
+                base_y + fold_top if base_y > center_y else base_y - fold_bottom
+            )
+            extra_pairs.append(
+                (left, (left[0], extended_base_y), (left[0] - half_extra, extended_base_y), "links")
+            )
+            extra_pairs.append(
+                (right, (right[0], extended_base_y), (right[0] + half_extra, extended_base_y), "rechts")
+            )
+        else:
+            def edge_x_at(start: Point, end: Point, y: float) -> float:
+                if abs(end[1] - start[1]) < 1e-9:
+                    return (start[0] + end[0]) / 2.0
+                factor = (y - start[1]) / (end[1] - start[1])
+                return start[0] + factor * (end[0] - start[0])
+
+            for fraction, side in ((0.30, "links"), (0.70, "rechts")):
+                y = min_y + (max_y - min_y) * fraction
+                if side == "links":
+                    original_x = edge_x_at(points[0], points[-1], y)
+                    original = (original_x, y)
+                    extra_pairs.append(
+                        (original, original, (original_x - half_extra, y), side)
+                    )
+                else:
+                    original_x = edge_x_at(points[1], points[2], y)
+                    original = (original_x, y)
+                    extra_pairs.append(
+                        (original, original, (original_x + half_extra, y), side)
+                    )
+
+    return extended_points, half_extra, fold_top, fold_bottom, extra_pairs
+
+
+def draw_part(
+    canvas: tk.Canvas,
+    part: Part,
+    bbox: tuple[float, float, float, float],
+    axis: Point,
+    extra_length: float,
+    fold_front: float,
+    fold_back: float,
+    *,
+    compact: bool,
+    tags: tuple[str, ...] = (),
+    background: str = BACKGROUND,
+    options: DisplayOptions | None = None,
+    rotate_clockwise: bool = False,
+) -> None:
+    x0, y0, x1, y1 = bbox
+    if x1 - x0 < 40 or y1 - y0 < 40:
+        return
+
+    options = options or DisplayOptions()
+    points = _local_points(part.points, axis)
+    (
+        extended_points,
+        half_extra,
+        fold_top,
+        fold_bottom,
+        extra_pairs,
+    ) = _extended_geometry(points, extra_length, fold_front, fold_back)
+
+    min_y = min(point[1] for point in points)
+    max_y = max(point[1] for point in points)
+    top_points = [point for point in points if abs(point[1] - max_y) < 1e-9]
+    bottom_points = [point for point in points if abs(point[1] - min_y) < 1e-9]
+    top_min_x = min(point[0] for point in top_points)
+    top_max_x = max(point[0] for point in top_points)
+    bottom_min_x = min(point[0] for point in bottom_points)
+    bottom_max_x = max(point[0] for point in bottom_points)
+    top_fold_x = top_min_x + (top_max_x - top_min_x) * 0.30
+    bottom_fold_x = bottom_min_x + (bottom_max_x - bottom_min_x) * 0.70
+
+    cut_top = max(point[1] for point in extended_points)
+    cut_bottom = min(point[1] for point in extended_points)
+    top_fold_original = (top_fold_x, max_y)
+    top_fold_cut = (top_fold_x, cut_top)
+    bottom_fold_original = (bottom_fold_x, min_y)
+    bottom_fold_cut = (bottom_fold_x, cut_bottom)
+
+    points = _rotate_points(points, rotate_clockwise)
+    extended_points = _rotate_points(extended_points, rotate_clockwise)
+    top_fold_original = _rotate_points([top_fold_original], rotate_clockwise)[0]
+    top_fold_cut = _rotate_points([top_fold_cut], rotate_clockwise)[0]
+    bottom_fold_original = _rotate_points([bottom_fold_original], rotate_clockwise)[0]
+    bottom_fold_cut = _rotate_points([bottom_fold_cut], rotate_clockwise)[0]
+    extra_pairs = [
+        (
+            _rotate_points([original], rotate_clockwise)[0],
+            _rotate_points([projected], rotate_clockwise)[0],
+            _rotate_points([extended], rotate_clockwise)[0],
+            side,
+        )
+        for original, projected, extended, side in extra_pairs
+    ]
+
     cut_left = min(point[0] for point in extended_points)
     cut_right = max(point[0] for point in extended_points)
     cut_bottom = min(point[1] for point in extended_points)
@@ -340,10 +464,10 @@ def draw_part(
 
     screen = [to_screen(point) for point in points]
     extended_screen = [to_screen(point) for point in extended_points]
-    cut_top_screen = to_screen((0.0, cut_top))[1]
-    cut_bottom_screen = to_screen((0.0, cut_bottom))[1]
-    original_top_screen = to_screen((0.0, max_y))[1]
-    original_bottom_screen = to_screen((0.0, min_y))[1]
+    center = (
+        sum(point[0] for point in extended_screen) / len(extended_screen),
+        sum(point[1] for point in extended_screen) / len(extended_screen),
+    )
 
     color = TAB20[(part.index - 1) % len(TAB20)]
     extended_fill = blend(ALLOWANCE, 0.10 if compact else 0.12, background)
@@ -356,7 +480,7 @@ def draw_part(
         joinstyle="round",
         tags=(*tags, "part-extended"),
     )
-    fill = blend(color, 0.30 if compact else 0.36)
+    fill = blend(color, 0.30 if compact else 0.36, background)
     canvas.create_polygon(
         *[coordinate for point in screen for coordinate in point],
         fill=fill,
@@ -366,92 +490,79 @@ def draw_part(
         tags=tags,
     )
 
-    _draw_part_angles(canvas, screen, part.angles_deg, compact=compact, tags=tags)
-    _draw_side_dimensions(
-        canvas,
-        screen,
-        part.edges_cm,
-        compact=compact,
-        tags=tags,
-        background=background,
-    )
-
-    dimension_x = x0 + 13.0
-    _draw_dimension_line(
-        canvas,
-        dimension_x,
-        cut_top_screen,
-        dimension_x,
-        cut_bottom_screen,
-        (*tags, "cut-dimension"),
-        tick=3.0 if compact else 4.0,
-    )
-    _text_with_background(
-        canvas,
-        dimension_x - (8.0 if compact else 10.0),
-        (cut_top_screen + cut_bottom_screen) / 2.0,
-        f"L {_format_length(part.height_cm + fold_top + fold_bottom)}",
-        DIMENSION,
-        ("Segoe UI", 7 if compact else 9, "bold"),
-        angle=90,
-        tags=(*tags, "cut-label"),
-        background=background,
-    )
-
-    top_points = [point for point in points if abs(point[1] - max_y) < 1e-9]
-    bottom_points = [point for point in points if abs(point[1] - min_y) < 1e-9]
-    top_min_x = min(point[0] for point in top_points)
-    top_max_x = max(point[0] for point in top_points)
-    bottom_min_x = min(point[0] for point in bottom_points)
-    bottom_max_x = max(point[0] for point in bottom_points)
-    top_fold_x = top_min_x + (top_max_x - top_min_x) * 0.30
-    bottom_fold_x = bottom_min_x + (bottom_max_x - bottom_min_x) * 0.70
-    top_fold_screen = to_screen((top_fold_x, max_y))
-    bottom_fold_screen = to_screen((bottom_fold_x, min_y))
-
-    if fold_top > 0.0:
-        _draw_dimension_line(
-            canvas,
-            top_fold_screen[0],
-            original_top_screen,
-            top_fold_screen[0],
-            cut_top_screen,
-            (*tags, "fold-dimension"),
-            tick=3.0 if compact else 4.0,
-        )
-    if fold_bottom > 0.0:
-        _draw_dimension_line(
-            canvas,
-            bottom_fold_screen[0],
-            original_bottom_screen,
-            bottom_fold_screen[0],
-            cut_bottom_screen,
-            (*tags, "fold-dimension"),
-            tick=3.0 if compact else 4.0,
+    if options.part_angles:
+        _draw_part_angles(
+            canvas, screen, part.angles_deg, compact=compact, tags=tags
         )
 
-    if half_extra > 0.0:
-        def edge_x_at(start: Point, end: Point, y: float) -> float:
-            if abs(end[1] - start[1]) < 1e-9:
-                return (start[0] + end[0]) / 2.0
-            factor = (y - start[1]) / (end[1] - start[1])
-            return start[0] + factor * (end[0] - start[0])
+    if options.part_dimensions:
+        extended_lengths = tuple(
+            distance(extended_points[index], extended_points[(index + 1) % len(extended_points)])
+            for index in range(len(extended_points))
+        )
+        _draw_side_dimensions(
+            canvas,
+            extended_screen,
+            extended_lengths,
+            compact=compact,
+            tags=tags,
+            background=background,
+        )
 
-        def draw_extra(
+        fold_font = ("Segoe UI", 6 if compact else 9, "bold")
+        label_gap = 26.0 if compact else 40.0
+        tick = 3.0 if compact else 4.0
+
+        def draw_fold(
             original: Point,
-            extended: Point,
-            side: str,
-            *,
-            leader: bool = False,
+            cut: Point,
+            text: str,
+            tag: str,
         ) -> None:
             start = to_screen(original)
+            end = to_screen(cut)
+            _draw_dimension_line(
+                canvas,
+                start[0],
+                start[1],
+                end[0],
+                end[1],
+                (*tags, tag),
+                tick=tick,
+            )
+            midpoint = ((start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0)
+            normal_x, normal_y = _normal_away(start, end, center)
+            _text_with_background(
+                canvas,
+                midpoint[0] + normal_x * label_gap,
+                midpoint[1] + normal_y * label_gap,
+                text,
+                DIMENSION,
+                fold_font,
+                angle=_text_angle(start, end),
+                tags=(*tags, "fold-label"),
+            )
+
+        if fold_top > 0.0:
+            draw_fold(top_fold_original, top_fold_cut, f"Fv {_format_length(fold_top)}", "fold-dimension")
+        if fold_bottom > 0.0:
+            draw_fold(
+                bottom_fold_original,
+                bottom_fold_cut,
+                f"Fh {_format_length(fold_bottom)}",
+                "fold-dimension",
+            )
+
+        for original, projected, extended, side in extra_pairs:
+            start = to_screen(original)
+            projected_screen = to_screen(projected)
             end = to_screen(extended)
-            if leader and abs(start[1] - end[1]) > 1.0:
+            if distance(start, projected_screen) > 1.0:
                 canvas.create_line(
                     start[0],
                     start[1],
-                    start[0],
-                    end[1],
+                    projected_screen[0],
+                    projected_screen[1],
                     fill=DIMENSION,
                     width=1,
                     dash=(2, 2),
@@ -459,83 +570,41 @@ def draw_part(
                 )
             _draw_dimension_line(
                 canvas,
-                start[0],
-                end[1],
+                projected_screen[0],
+                projected_screen[1],
                 end[0],
                 end[1],
                 (*tags, f"extra-dimension-{side}"),
                 tick=3.0 if compact else 4.5,
             )
-            anchor = "e" if side == "left" else "w"
-            text_x = end[0] - 4 if side == "left" else end[0] + 4
+            midpoint = (
+                (projected_screen[0] + end[0]) / 2.0,
+                (projected_screen[1] + end[1]) / 2.0,
+            )
+            normal_x, normal_y = _normal_away(projected_screen, end, center)
             _text_with_background(
                 canvas,
-                text_x,
-                end[1],
+                midpoint[0] + normal_x * (10.0 if compact else 13.0),
+                midpoint[1] + normal_y * (10.0 if compact else 13.0),
                 f"+{_format_length(half_extra)}",
                 ALLOWANCE,
                 ("Segoe UI", 6 if compact else 8, "bold"),
-                angle=0,
+                angle=_text_angle(projected_screen, end),
                 tags=(*tags, "extra-label"),
-                background=background,
-                anchor=anchor,
             )
 
-        base_edge = None
-        if len(points) == 3:
-            for index in range(3):
-                first = points[index]
-                second = points[(index + 1) % 3]
-                if abs(first[1] - second[1]) < 1e-9:
-                    base_edge = (first, second)
-                    break
-
-        if base_edge is not None:
-            left, right = sorted(base_edge, key=lambda point: point[0])
-            base_y = left[1]
-            if base_y > center_y:
-                extended_base_y = base_y + fold_top
-            else:
-                extended_base_y = base_y - fold_bottom
-            draw_extra(left, (left[0] - half_extra, extended_base_y), "left", leader=True)
-            draw_extra(right, (right[0] + half_extra, extended_base_y), "right", leader=True)
-        else:
-            for fraction, side in ((0.30, "left"), (0.70, "right")):
-                y = min_y + (max_y - min_y) * fraction
-                if side == "left":
-                    original_x = edge_x_at(points[0], points[-1], y)
-                    original = (original_x, y)
-                    extended = (original_x - half_extra, y)
-                else:
-                    original_x = edge_x_at(points[1], points[2], y)
-                    original = (original_x, y)
-                    extended = (original_x + half_extra, y)
-                draw_extra(original, extended, side)
-
-    fold_font = ("Segoe UI", 6 if compact else 9, "bold")
-    fold_gap = 38.0 if compact else 58.0
-    _text_with_background(
-        canvas,
-        top_fold_screen[0],
-        cut_top_screen - fold_gap,
-        f"Fv {_format_length(fold_top)}",
-        DIMENSION,
-        fold_font,
-        angle=90,
-        tags=(*tags, "fold-label"),
-        background=background,
-    )
-    _text_with_background(
-        canvas,
-        bottom_fold_screen[0],
-        cut_bottom_screen + fold_gap,
-        f"Fh {_format_length(fold_bottom)}",
-        DIMENSION,
-        fold_font,
-        angle=90,
-        tags=(*tags, "fold-label"),
-        background=background,
-    )
+    if options.part_areas:
+        area = polygon_area(extended_points)
+        canvas.create_text(
+            x1 - 8.0,
+            y0 + 8.0,
+            text=format_area(area),
+            fill=color,
+            font=("Segoe UI", max(7, options.font_size), "bold"),
+            anchor="ne",
+            justify="right",
+            tags=(*tags, "part-area-label"),
+        )
 
 
 class PartPopup(tk.Toplevel):
@@ -545,6 +614,7 @@ class PartPopup(tk.Toplevel):
         part: Part,
         axis: Point,
         extras: tuple[float, float, float],
+        options: DisplayOptions | None = None,
     ) -> None:
         super().__init__(master)
         self.title(f"Teil {part.index}")
@@ -552,6 +622,7 @@ class PartPopup(tk.Toplevel):
         self.resizable(False, False)
         self.configure(background=BACKGROUND)
         self.transient(master.winfo_toplevel())
+        self.options = options or DisplayOptions()
         self.canvas = tk.Canvas(
             self,
             background=BACKGROUND,
@@ -562,7 +633,8 @@ class PartPopup(tk.Toplevel):
         )
         self.canvas.pack(fill="both", expand=True, padx=4, pady=4)
         self.canvas.bind(
-            "<Configure>", lambda _event: self._draw(part, axis, extras)
+            "<Configure>",
+            lambda _event: self._draw(part, axis, extras),
         )
         self.bind("<Escape>", lambda _event: self.destroy())
         root = master.winfo_toplevel()
@@ -594,6 +666,8 @@ class PartPopup(tk.Toplevel):
             extras[2],
             compact=False,
             tags=("part",),
+            options=self.options,
+            rotate_clockwise=True,
         )
 
 
@@ -619,6 +693,7 @@ class PartsList(tk.Frame):
         self.parts: list[Part] = []
         self.height_name = "ha"
         self.extras: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self.options = DisplayOptions()
         self.axis: Point = (0.0, 1.0)
         self._signature: tuple | None = None
 
@@ -631,17 +706,24 @@ class PartsList(tk.Frame):
         self.canvas.bind("<Motion>", self._on_motion)
         self.canvas.bind("<Leave>", lambda _event: self.canvas.configure(cursor=""))
 
+    def set_display_options(self, options: DisplayOptions) -> None:
+        self.options = options
+        self.redraw()
+
     def set_data(
         self,
         triangle: Triangle | None,
         parts: list[Part],
         height_name: str,
         extras: tuple[float, float, float],
+        options: DisplayOptions | None = None,
     ) -> None:
         self.triangle = triangle
         self.parts = parts
         self.height_name = height_name
         self.extras = extras
+        if options is not None:
+            self.options = options
         self.axis = height_axis(triangle, height_name) if triangle else (0.0, 1.0)
         signature = (len(parts), height_name)
         if signature != self._signature:
@@ -675,7 +757,7 @@ class PartsList(tk.Frame):
     def _on_double_click(self, _event: tk.Event) -> str:
         part = self._part_from_current()
         if part is not None:
-            PartPopup(self, part, self.axis, self.extras)
+            PartPopup(self, part, self.axis, self.extras, self.options)
         return "break"
 
     def _on_motion(self, _event: tk.Event) -> None:
@@ -722,19 +804,22 @@ class PartsList(tk.Frame):
                 tags=tags,
             )
             color = TAB20[(part.index - 1) % len(TAB20)]
-            self.canvas.create_text(
-                18,
-                top + 10,
-                text=f"Teil {part.index}",
-                fill=color,
-                font=("Segoe UI", 9, "bold"),
-                anchor="nw",
-                tags=tags,
-            )
+            content_top = top + 12.0
+            if self.options.part_numbers:
+                self.canvas.create_text(
+                    18,
+                    top + 10,
+                    text=f"Teil {part.index}",
+                    fill=color,
+                    font=("Segoe UI", 9, "bold"),
+                    anchor="nw",
+                    tags=tags,
+                )
+                content_top = top + 26.0
             draw_part(
                 self.canvas,
                 part,
-                (12.0, top + 26.0, width - 12.0, top + card_height - 8.0),
+                (12.0, content_top, width - 12.0, top + card_height - 8.0),
                 self.axis,
                 self.extras[0],
                 self.extras[1],
@@ -742,6 +827,8 @@ class PartsList(tk.Frame):
                 compact=True,
                 tags=tags,
                 background=CARD_BACKGROUND,
+                options=self.options,
+                rotate_clockwise=True,
             )
             top += card_height + 8.0
 

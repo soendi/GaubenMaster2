@@ -10,13 +10,15 @@ prüfsummengesichertes Update über GitHub Releases.
 - Prüfung auf positive Seiten und die Dreiecksungleichung
 - Winkel, Fläche, Umfang, Höhen, Inkreis- und Umkreisradius
 - Interaktive Zeichnung: Verschieben per Mauszug, Drehen mit Strg+Mauszug, Zoomen per Mausrad
+- Anzeige-Panel für Zoom, Schriftgröße und einzelne Maßhilfen
 - Beschriftete Seiten, Eckpunkte, Winkel und Bounding-Boxen
 - Höhenteilung über `ha`, `hb` oder `hc`
 - Teilung in 2–20 gleiche Teile oder in Abschnitte à 0,1–50 cm
 - Farbige Einzelteile mit Fläche, Kantenlängen und Hover-Hervorhebung
-- Scrollbare, bemaßte Zeichnung jedes Einzelteils mit Länge und Winkel
-- Doppelklick auf ein Einzelteil öffnet eine Großansicht im 250 × 250-Pixel-Fenster
+- Um den Zuschnitt erweiterte, bemaßte Einzelteil-Zeichnungen mit Fv/Fh-Falzen
+- Doppelklick auf ein Einzelteil öffnet eine Großansicht im 800 × 800-Pixel-Fenster
 - Zuschnittangaben für Länge sowie vorderen und hinteren Falz
+- PDF-Export mit Hauptzeichnung und allen Einzelteilen (vier pro A4-Seite)
 - Update-Prüfung beim Start mit Benachrichtigung und stiller MSI-Installation
 - Einstellungen für Auto-Update, Prüfintervall und Repository-URL
 

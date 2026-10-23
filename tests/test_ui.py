@@ -1,5 +1,6 @@
 import math
 import sys
+import tempfile
 import tkinter as tk
 import unittest
 from pathlib import Path
@@ -8,6 +9,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from gaubenmaster.partdraw import PartPopup  # noqa: E402
+from gaubenmaster.pdfexport import export_pdf  # noqa: E402
 from gaubenmaster.ui import App  # noqa: E402
 
 
@@ -123,6 +125,72 @@ class UiSmokeTests(unittest.TestCase):
             label_x, label_y = view.coords(text_id)
             self.assertAlmostEqual(label_x, line_mid[0], places=6)
             self.assertAlmostEqual(label_y, line_mid[1], places=6)
+
+    def test_display_options_hide_main_measurements(self):
+        self.app._calculate()
+        self.app.option_vars["main_angles"].set(False)
+        self.app.option_vars["main_angle_arcs"].set(False)
+        self.app.option_vars["main_dimensions"].set(False)
+        self.app._display_changed()
+        self.assertEqual(self.app.view.find_withtag("angle-label"), ())
+        self.assertEqual(self.app.view.find_withtag("angle-arc"), ())
+        self.assertEqual(self.app.view.find_withtag("side-dimension-a"), ())
+
+    def test_display_font_and_zoom_are_applied(self):
+        self.app._calculate()
+        self.app.font_var.set("13")
+        self.app.zoom_var.set("2,0")
+        self.app._display_changed()
+        self.assertEqual(self.app.view.options.font_size, 13)
+        self.assertAlmostEqual(self.app.view.zoom, 2.0)
+        text_id = self.app.view.find_withtag("angle-label")[0]
+        self.assertIn("26", self.app.view.itemcget(text_id, "font"))
+
+    def test_part_area_labels_switch_to_square_metres(self):
+        self.app.side_vars["a"].set("250")
+        self.app.side_vars["b"].set("120")
+        self.app.side_vars["c"].set("310")
+        self.app._calculate()
+        self.app.height_var.set(True)
+        self.app._rebuild_view()
+        canvas = self.app.parts_list.canvas
+        with (
+            mock.patch.object(canvas, "winfo_width", return_value=380),
+            mock.patch.object(canvas, "winfo_height", return_value=800),
+        ):
+            self.app.parts_list.redraw()
+        labels = [
+            canvas.itemcget(item, "text")
+            for item in canvas.find_withtag("part-area-label")
+        ]
+        self.assertTrue(labels)
+        self.assertTrue(any("m²" in label for label in labels))
+
+    def test_pdf_export_contains_main_and_part_pages(self):
+        self.app._calculate()
+        self.app.height_var.set(True)
+        self.app._rebuild_view()
+        self.app.extra_vars["length_extra"].set("2,0")
+        self.app.extra_vars["fold_front"].set("1,0")
+        self.app.extra_vars["fold_back"].set("3,0")
+        self.app._height_changed()
+        self.app.view.rotation = 25.0
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "gaube.pdf"
+            export_pdf(
+                path,
+                self.app.triangle,
+                self.app.parts,
+                self.app._height_name(),
+                self.app._extras(),
+                self.app.display_options,
+                rotation=self.app.view.rotation,
+                master=self.root,
+            )
+            data = path.read_bytes()
+        self.assertTrue(data.startswith(b"%PDF-1.4"))
+        self.assertEqual(data.count(b"/Type /Page "), 2)
+        self.assertIn(b"Teil 1", data)
 
     def test_invalid_input_shows_error(self):
         self.app.side_vars["a"].set("1")
