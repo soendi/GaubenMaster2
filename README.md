@@ -11,7 +11,7 @@ prüfsummengesichertes Update über GitHub Releases.
 - Winkel, Fläche, Umfang, Höhen, Inkreis- und Umkreisradius
 - Interaktive Zeichnung: Verschieben per Mauszug, Drehen mit Strg+Mauszug, Zoomen per Mausrad
 - Anzeige-Panel für Zoom, Schriftgröße und einzelne Maßhilfen
-- Beschriftete Seiten, Eckpunkte, Winkel und Bounding-Boxen
+- Beschriftete Seiten, Eckpunkte und Winkel
 - Höhenteilung über `ha`, `hb` oder `hc`
 - Teilung in 2–20 gleiche Teile oder in Abschnitte à 0,1–50 cm
 - Farbige Einzelteile mit Fläche, Kantenlängen und Hover-Hervorhebung

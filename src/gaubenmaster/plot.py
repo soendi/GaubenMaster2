@@ -558,24 +558,7 @@ class TriangleView(tk.Canvas):
                 width=2 if self.hovered == part.index else 1,
                 joinstyle="round",
             )
-            self._draw_part_bounds(part, alpha, color)
             self._draw_part_labels(part, screen, alpha, color)
-
-    def _draw_part_bounds(self, part: Part, alpha: float, color: str) -> None:
-        min_x, min_y, max_x, max_y = part.bounds
-        corners = [
-            self._to_screen((min_x, min_y)),
-            self._to_screen((max_x, min_y)),
-            self._to_screen((max_x, max_y)),
-            self._to_screen((min_x, max_y)),
-        ]
-        self.create_polygon(
-            *[coordinate for point in corners for coordinate in point],
-            fill="",
-            outline=blend(color, alpha, "#ffffff"),
-            width=1,
-            dash=(2, 4),
-        )
 
     def _draw_part_labels(
         self, part: Part, screen: list[Point], alpha: float, color: str

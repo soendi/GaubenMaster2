@@ -237,31 +237,37 @@ def _extended_geometry(
 
     edge_offsets: list[Point] = []
     if len(points) == 3:
-        base_index = next(
-            (
-                index
-                for index in range(3)
-                if abs(points[index][1] - points[(index + 1) % 3][1]) < 1e-9
-            ),
-            -1,
+        signed_area = sum(
+            points[index][0] * points[(index + 1) % 3][1]
+            - points[(index + 1) % 3][0] * points[index][1]
+            for index in range(3)
         )
-        base_y = points[base_index][1] if base_index >= 0 else min_y
-        if base_y > center_y:
-            base_offset = (0.0, fold_top)
-            side_offset_y = -fold_bottom
-        else:
-            base_offset = (0.0, -fold_bottom)
-            side_offset_y = fold_top
-        for index in range(3):
-            if index == base_index:
-                edge_offsets.append(base_offset)
+        orientation = 1.0 if signed_area >= 0.0 else -1.0
+        for index, point in enumerate(points):
+            following = points[(index + 1) % 3]
+            dx = following[0] - point[0]
+            dy = following[1] - point[1]
+            length = math.hypot(dx, dy)
+            if length < 1e-9:
+                edge_offsets.append((0.0, 0.0))
                 continue
-            first = points[index]
-            second = points[(index + 1) % 3]
-            midpoint_x = (first[0] + second[0]) / 2.0
-            edge_offsets.append(
-                (-half_extra if midpoint_x < center_x else half_extra, side_offset_y)
+            normal_x = orientation * dy / length
+            normal_y = -orientation * dx / length
+            offset_x = (
+                half_extra
+                if normal_x > 1e-9
+                else -half_extra
+                if normal_x < -1e-9
+                else 0.0
             )
+            offset_y = (
+                fold_top
+                if normal_y > 1e-9
+                else -fold_bottom
+                if normal_y < -1e-9
+                else 0.0
+            )
+            edge_offsets.append((offset_x, offset_y))
     else:
         for index, point in enumerate(points):
             following = points[(index + 1) % len(points)]
@@ -494,8 +500,10 @@ def draw_part(
     )
 
     if options.part_angles:
+        has_extension = half_extra > 1e-9 or fold_top > 1e-9 or fold_bottom > 1e-9
+        angle_polygon = extended_screen if has_extension else screen
         _draw_part_angles(
-            canvas, screen, part.angles_deg, compact=compact, tags=tags
+            canvas, angle_polygon, part.angles_deg, compact=compact, tags=tags
         )
 
     if options.part_dimensions:
