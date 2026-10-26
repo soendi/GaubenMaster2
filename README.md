@@ -18,6 +18,9 @@ prüfsummengesichertes Update über GitHub Releases.
 - Um den Zuschnitt erweiterte, bemaßte Einzelteil-Zeichnungen mit Fv/Fh-Falzen
 - Doppelklick auf ein Einzelteil öffnet eine Großansicht im 800 × 800-Pixel-Fenster
 - Zuschnittangaben für Länge sowie vorderen und hinteren Falz
+- Plattenplanung auf einer Coil mit fester Breite von 1 m
+- Polygon-Verschachtelung mit freier Drehung der Einzelteile und berechneter Coil-Länge
+- Platzierung inklusive Fv/Fh/Länge+ mit Verschnittanzeige
 - PDF-Export mit Hauptzeichnung und allen Einzelteilen (Zoomfenster-Stil, vier Teile pro A4-Seite)
 - Update-Prüfung beim Start mit Benachrichtigung und stiller MSI-Installation
 - Einstellungen für Auto-Update, Prüfintervall und Repository-URL
@@ -65,11 +68,22 @@ Nach der Bestätigung beendet sich die Anwendung, der MSI-Installer läuft
 still, und die neue Version wird automatisch gestartet. Schlägt die
 Installation fehl, rollt Windows Installer die Änderungen zurück.
 
+## Plattenplanung
+
+**Extras → Plattenplanung...** oder die gleichnamige Schaltfläche im Bereich
+Höhen-Teilung legt die Einzelteile auf eine Coil mit fester Breite von 1 m.
+Die Teile werden inklusive `Länge+`, `Fv` und `Fh` zugeschnitten und als
+Polygone frei gedreht verschachtelt: Ein globaler Winkelabgleich sucht die
+kompakteste Anordnung, bei der die Teile mit ihren Kanten und Winkeln
+ineinandergreifen. Die benötigte Coil-Länge ergibt sich aus dieser
+Platzierung; angezeigt werden die Länge und der Verschnitt.
+
 ## Aufbau
 
 - `geometry.py`: validierte Dreiecksberechnung und Höhenteilung ohne UI
 - `plot.py`: interaktive Tkinter-Zeichenfläche und Hover-Erkennung
 - `partdraw.py`: scrollbare Einzelteil-Zeichnungen und Großansicht
+- `plateplanning.py`: Plattenplanung auf der 1-m-Coil, freie Rotation, Verschnitt
 - `ui.py`: Fenster, Eingaben, Einzelteil-Seitenleiste, Einstellungen, Updates
 - `updater.py`: Release-Prüfung, Download, Prüfsumme und MSI-Installation
 - `paths.py`: Installations-, Daten- und Cache-Pfade

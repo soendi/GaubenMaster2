@@ -236,6 +236,37 @@ class UiSmokeTests(unittest.TestCase):
             popup.destroy()
             self.root.withdraw()
 
+    def test_plate_planning_window_packs_all_parts(self):
+        self.app._calculate()
+        self.app.height_var.set(True)
+        self.app._rebuild_view()
+        self.app._open_plate_planning()
+        windows = [
+            widget
+            for widget in self.root.winfo_children()
+            if isinstance(widget, tk.Toplevel)
+        ]
+        self.assertEqual(len(windows), 1)
+        window = windows[0]
+        try:
+            window.update_idletasks()
+            window._recalculate()
+            with (
+                mock.patch.object(
+                    window.canvas, "winfo_width", return_value=900
+                ),
+                mock.patch.object(
+                    window.canvas, "winfo_height", return_value=700
+                ),
+            ):
+                window._draw_strip()
+            self.assertEqual(len(window._strip["items"]), len(self.app.parts))
+            self.assertEqual(window._unplaced, [])
+            self.assertIn("Coil-Länge", window.status.cget("text"))
+            self.assertGreater(len(window.canvas.find_all()), 0)
+        finally:
+            window.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()

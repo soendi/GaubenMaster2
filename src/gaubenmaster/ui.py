@@ -32,6 +32,7 @@ from .paths import (
     update_dir,
 )
 from .pdfexport import export_pdf
+from .plateplanning import PlatePlanningWindow
 from .plot import DisplayOptions, TriangleView
 from .updater import (
     REPO,
@@ -329,6 +330,9 @@ class App:
         extras_menu.add_command(
             label="Repository öffnen", command=self._open_repository
         )
+        extras_menu.add_command(
+            label="Plattenplanung...", command=self._open_plate_planning
+        )
         extras_menu.add_separator()
         extras_menu.add_command(
             label="Einstellungen", command=self._open_settings
@@ -562,6 +566,11 @@ class App:
         self.height_status.grid(
             row=8, column=0, columnspan=2, sticky="w", pady=(6, 0)
         )
+        ttk.Button(
+            height_frame,
+            text="Plattenplanung...",
+            command=self._open_plate_planning,
+        ).grid(row=9, column=0, columnspan=2, sticky="ew", pady=(6, 0))
 
         display_frame = ttk.LabelFrame(
             self.left_content, text="Anzeige", padding=6
@@ -736,6 +745,22 @@ class App:
             )
         )
         self._rebuild_view()
+
+    def _open_plate_planning(self) -> None:
+        if not self.triangle or not self.parts:
+            messagebox.showinfo(
+                "Plattenplanung",
+                "Bitte zuerst die Höhen-Teilung aktivieren und mindestens ein Teil berechnen.",
+                parent=self.root,
+            )
+            return
+        PlatePlanningWindow(
+            self.root,
+            self.triangle,
+            self.parts,
+            self._height_name(),
+            self._extras(),
+        )
 
     def _height_name(self) -> HeightName:
         text = self.height_choice.get().strip().lower()
