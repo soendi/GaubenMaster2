@@ -34,6 +34,12 @@ from gaubenmaster.nesting import (
 )
 from gaubenmaster.plot import BACKGROUND, TAB20, blend
 
+try:
+    from gaubenmaster.spyrrow_solver import is_spyrrow_available
+except Exception:  # pragma: no cover
+    def is_spyrrow_available() -> bool:
+        return False
+
 PLATE_FILL = "#ffffff"
 PLATE_OUTLINE = "#12263f"
 GRID = "#e4e8ee"
@@ -70,6 +76,9 @@ class PlatePlanningWindow(tk.Toplevel):
         self.budget_var = tk.StringVar(value="10")
         self.angle_step_var = tk.StringVar(value="10")
         self.scoring_var = tk.StringVar(value=SCORING_LABELS[SCORING_BALANCED])
+        self.solver_var = tk.StringVar(
+            value="Sparrow (extern)" if is_spyrrow_available() else "Eigen (Heuristik)"
+        )
 
         self._results: list[Layout] = []
         self._pareto: list[Layout] = []
@@ -162,6 +171,21 @@ class PlatePlanningWindow(tk.Toplevel):
         )
         self._scoring_box.pack(side="left", padx=(4, 0))
         self._scoring_box.bind(
+            "<<ComboboxSelected>>", lambda _event: self._start_search()
+        )
+        ttk.Label(budget_frame, text="Solver:").pack(side="left", padx=(10, 0))
+        solver_values = ["Eigen (Heuristik)"]
+        if is_spyrrow_available():
+            solver_values.append("Sparrow (extern)")
+        self._solver_box = ttk.Combobox(
+            budget_frame,
+            textvariable=self.solver_var,
+            values=solver_values,
+            state="readonly",
+            width=18,
+        )
+        self._solver_box.pack(side="left", padx=(4, 0))
+        self._solver_box.bind(
             "<<ComboboxSelected>>", lambda _event: self._start_search()
         )
         self._start_button = ttk.Button(
@@ -390,6 +414,9 @@ class PlatePlanningWindow(tk.Toplevel):
                 return mode
         return SCORING_BALANCED
 
+    def _solver_mode(self) -> str:
+        return "sparrow" if self.solver_var.get().startswith("Sparrow") else "own"
+
     def _build_shapes(self) -> list:
         return shapes_from_parts(
             self.triangle, self.parts, self.height_name, self.extras
@@ -424,6 +451,7 @@ class PlatePlanningWindow(tk.Toplevel):
             coarse_angle_step_deg=angle_step,
             allow_free_rotation=True,
             scoring=self._scoring_mode(),
+            solver=self._solver_mode(),
         )
         live = bool(self.live_var.get())
         self._results = []
@@ -1144,6 +1172,7 @@ class PlatePlanningWindow(tk.Toplevel):
                 coarse_angle_step_deg=self._angle_step_degrees(),
                 allow_free_rotation=True,
                 scoring=self._scoring_mode(),
+                solver=self._solver_mode(),
             )
             started = time.monotonic()
             result = nest_shapes_detailed(shapes, options)

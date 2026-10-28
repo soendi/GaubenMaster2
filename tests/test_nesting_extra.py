@@ -23,6 +23,12 @@ from gaubenmaster.nesting import (
     validate_layout,
 )
 
+try:
+    from gaubenmaster.spyrrow_solver import is_spyrrow_available
+except Exception:  # pragma: no cover
+    def is_spyrrow_available() -> bool:
+        return False
+
 
 def rect_shape(i, w, h):
     return Shape.from_polygon(i, [(0, 0), (w, 0), (w, h), (0, h)])
@@ -212,6 +218,27 @@ class ExtendedNestingTests(unittest.TestCase):
         result = nest_shapes_detailed([], NestingOptions())
         self.assertEqual(result.layouts, ())
         self.assertEqual(result.pareto, ())
+
+
+@unittest.skipUnless(is_spyrrow_available(), "spyrrow nicht installiert")
+class SparrowSolverTests(unittest.TestCase):
+    def test_sparrow_produces_valid_layout(self):
+        shapes = [rect_shape(i, 20, 15) for i in range(1, 7)]
+        opts = NestingOptions(
+            time_budget_s=5.0, solver="sparrow", allow_free_rotation=True
+        )
+        result = nest_shapes_detailed(shapes, opts)
+        self.assertTrue(result.layouts)
+        layout = result.layouts[0]
+        self.assertEqual(validate_layout(layout), [])
+        self.assertEqual(len(layout.items), len(shapes))
+
+    def test_sparrow_fallback_when_unavailable(self):
+        # own-Solver bleibt verfuegbar
+        shapes = [rect_shape(1, 40, 20)]
+        opts = NestingOptions(time_budget_s=1.0, solver="own")
+        result = nest_shapes_detailed(shapes, opts)
+        self.assertTrue(result.layouts)
 
 
 if __name__ == "__main__":

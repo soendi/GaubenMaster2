@@ -829,6 +829,7 @@ class NestingOptions:
     fine_angle_step_deg: float = FINE_ANGLE_STEP_DEG
     random_seed: int = 20260310
     allow_free_rotation: bool = True
+    solver: str = "own"
     scoring: str = SCORING_BALANCED
     waste_weight: float = 0.5
     cut_weight: float = 0.5
@@ -871,6 +872,10 @@ class NestingOptions:
             raise NestingError("group_size muss mindestens 1 sein.")
         if self.idle_runs < 0:
             raise NestingError("idle_runs darf nicht negativ sein.")
+        if self.solver not in ("own", "sparrow"):
+            raise NestingError(
+                "Unbekannter Solver. Erlaubt sind: own, sparrow."
+            )
         self.cut_assumptions.validated()
         return self
 
@@ -2475,6 +2480,22 @@ def nest_shapes_detailed(
             phase_counts=(),
             min_length=0.0,
         )
+    if settings.solver == "sparrow":
+        try:
+            from gaubenmaster.spyrrow_solver import (
+                is_spyrrow_available,
+                solve_sparrow_detailed,
+            )
+
+            if is_spyrrow_available():
+                result = solve_sparrow_detailed(
+                    shapes, settings, progress_cb, cancel_event
+                )
+                if result is not None and result.layouts:
+                    return result
+        except Exception:
+            pass
+    # fallback to own
     indices = [shape.part_index for shape in shapes]
     if len(set(indices)) != len(indices):
         raise NestingError(
