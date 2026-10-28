@@ -75,29 +75,47 @@ Höhen-Teilung legt die Einzelteile auf eine Coil mit fester Breite von 100 cm.
 Die Teile werden inklusive `Länge+`, `Fv` und `Fh` zugeschnitten und als
 Polygone mit ihren echten Konturen verschachtelt.
 
-Die Suche läuft in zwei Phasen: Phase A erlaubt ausschließlich 0°/180°, nutzt
-die paarweise Passung gerader und ungerader Teile und hat Vorrang. Erst danach
-prüft Phase B zusätzliche Drehwinkel (grobe Schrittweite, danach feinere
-Verfeinerung); solche Lösungen erscheinen nur als zusätzliche Alternativen.
+Die Optimierung verfolgt zwei Ziele gemeinsam: **Materialverschnitt
+minimieren** und **modellierte Schnittanzahl minimieren**. Vier
+Drehungsphasen (A: 0°/180°, B: 90°/270°, C: alternative Winkel mit
+Verfeinerung, D: gemischte Drehungen je Teil) konkurrieren ohne Vorrang
+einer Phase über die gewählte Bewertung (Verschnitt priorisieren,
+Schnittanzahl priorisieren oder ausgewogen, Standard). Paar- und
+Gruppenbildungen (2–4 Teile) sind auflösbar; die Kollisionsprüfung arbeitet
+auf echten Konturen, nicht nur auf Bounding Boxes.
+
+Die **modellierte Schnittanzahl** trennt geometrische Trennlinie,
+zusammenhängenden Schnittweg und tatsächlichen Schnittvorgang: gemeinsame
+Linien werden einmal gezählt, Berührungen gelten nicht als gemeinsame
+Schnittlinie, Materialrandkanten werden nicht geschnitten, Schnittfugenbreite
+ist 0 cm. Die Annahmen sind konfigurierbar (Ansatz am Materialrand ja/nein).
+
 Mehrere Startreihenfolgen und lokale Verbesserungen liefern bis zu drei
-unterschiedliche, vollständig geometrisch geprüfte Anordnungen mit Länge,
-Verschnittfläche und -anteil. Die Anzeige kennzeichnet die Lösung als
+unterschiedliche, vollständig geometrisch geprüfte Anordnungen mit Rang,
+Gesamtbewertung, Länge, Verschnittfläche/-anteil, modellierte Schnittanzahl,
+Schnittmodell-Annahmen, Winkeln, Positionen, Paar-/Gruppenbildungen, Anzahl
+Einzelteile/Gruppen, gemeinsamen Schnittlinien und Rechenzeit. Eine
+Pareto-Front über (Verschnitt, Schnitte) wird zusätzlich als
+Zielkonflikt-Tabelle angezeigt. Die Anzeige kennzeichnet die Lösung als
 heuristisch gefunden, nicht als nachgewiesenes Optimum.
 
 Während der Berechnung zeigt die Live-Ansicht die Materialfläche, die aktuell
 getestete Platzierung, die beste bisherige Anordnung, Teilnummern, Winkel,
-Koordinaten und ob ein Kandidat gültig ist oder verworfen wurde. Die Checkbox
-**Live-Ansicht während der Berechnung anzeigen** ist standardmäßig aktiv und
-beeinflusst weder Suchstrategie noch Ergebnis. Zeitbudget (3–10 s) und
-Winkelschritt sind einstellbar; ein Abbruch liefert die beste bisherige
-gültige Lösung.
+Koordinaten, Suchstrategie, aktuelle Paar-/Gruppenbildungen, Schnittanzahl,
+Bewertung beider Ziele, Verschnitt und ob ein Kandidat gültig ist oder
+verworfen wurde. Die Checkbox **Live-Ansicht während der Berechnung anzeigen**
+ist standardmäßig aktiv und beeinflusst weder Suchstrategie noch Ergebnis.
+Zeitbudget (3–10 s) und Winkelschritt sind einstellbar; ein Abbruch oder
+Timeout liefert die beste bisherige gültige Lösung. Bei weniger als drei
+unterschiedlichen Lösungen wird dies gekennzeichnet.
 
 ## Aufbau
 
 - `geometry.py`: validierte Dreiecksberechnung und Höhenteilung ohne UI
+- `cutmodel.py`: transparentes Schnittkostenmodell (Annahmen, Segmente, Plan)
 - `plot.py`: interaktive Tkinter-Zeichenfläche und Hover-Erkennung
 - `partdraw.py`: scrollbare Einzelteil-Zeichnungen und Großansicht
-- `nesting.py`: Polygon-Nesting-Engine (Geometrieprüfung, Phase A/B, Top-3)
+- `nesting.py`: Polygon-Nesting-Engine (4 Phasen, Gruppen, Pareto, Top-3)
 - `plateplanning.py`: Plattenplanungsfenster mit Live-Ansicht und Ergebniswahl
 - `ui.py`: Fenster, Eingaben, Einzelteil-Seitenleiste, Einstellungen, Updates
 - `updater.py`: Release-Prüfung, Download, Prüfsumme und MSI-Installation

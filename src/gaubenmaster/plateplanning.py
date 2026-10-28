@@ -17,12 +17,18 @@ from tkinter import messagebox, ttk
 from gaubenmaster.formatting import format_number
 from gaubenmaster.geometry import Part, Triangle, polygon_centroid
 from gaubenmaster.nesting import (
+    SCORING_BALANCED,
+    SCORING_CUTS,
+    SCORING_LABELS,
+    SCORING_MODES,
+    SCORING_WASTE,
     STRIP_WIDTH_CM,
     Layout,
     NestingError,
     NestingOptions,
     NestingProgress,
-    nest_shapes,
+    NestingResult,
+    nest_shapes_detailed,
     shapes_from_parts,
     validate_layout,
 )
@@ -63,8 +69,11 @@ class PlatePlanningWindow(tk.Toplevel):
         self.live_var = tk.BooleanVar(value=True)
         self.budget_var = tk.StringVar(value="5")
         self.angle_step_var = tk.StringVar(value="10")
+        self.scoring_var = tk.StringVar(value=SCORING_LABELS[SCORING_BALANCED])
 
         self._results: list[Layout] = []
+        self._pareto: list[Layout] = []
+        self._result: NestingResult | None = None
         self._live_best: Layout | None = None
         self._live_layout: Layout | None = None
         self._selected_index = 0
@@ -143,6 +152,18 @@ class PlatePlanningWindow(tk.Toplevel):
             textvariable=self.angle_step_var,
         ).pack(side="left", padx=(4, 2))
         ttk.Label(budget_frame, text="°").pack(side="left")
+        ttk.Label(budget_frame, text="Ziel:").pack(side="left", padx=(10, 0))
+        self._scoring_box = ttk.Combobox(
+            budget_frame,
+            textvariable=self.scoring_var,
+            values=[SCORING_LABELS[mode] for mode in SCORING_MODES],
+            state="readonly",
+            width=26,
+        )
+        self._scoring_box.pack(side="left", padx=(4, 0))
+        self._scoring_box.bind(
+            "<<ComboboxSelected>>", lambda _event: self._start_search()
+        )
         self._start_button = ttk.Button(
             controls, text="Berechnen", command=self._start_search
         )
@@ -161,9 +182,11 @@ class PlatePlanningWindow(tk.Toplevel):
                 f"Zuschnitt: Länge+ {format_number(self.extras[0])} cm · "
                 f"Fv {format_number(self.extras[1])} cm · "
                 f"Fh {format_number(self.extras[2])} cm   |   "
-                "Phase A nutzt ausschließlich 0°/180°, Phase B zusätzliche "
-                "Drehwinkel. Alle Maße in cm. Die Suche ist eine Heuristik, "
-                "kein nachgewiesenes Optimum."
+                "Vier Drehungsphasen (A 0°/180°, B 90°/270°, C alternative "
+                "Winkel, D gemischt) konkurrieren über die gewählte Bewertung. "
+                "Die Schnittanzahl ist modelliert (Fugenbreite 0 cm, "
+                "gemeinsame Linien einfach gezählt) und keine gemessene "
+                "Werkzeugzahl. Heuristik, kein nachgewiesenes Optimum."
             ),
             foreground=MUTED,
             justify="left",
@@ -201,12 +224,14 @@ class PlatePlanningWindow(tk.Toplevel):
         self.live_info.grid(row=4, column=0, sticky="w", pady=(2, 0))
 
     def _build_result_panel(self, outer: ttk.Frame) -> None:
-        panel = ttk.LabelFrame(outer, text="Lösungen (bis zu 3)", padding=8)
+        panel = ttk.LabelFrame(
+            outer, text="Lösungen (bis zu 3, nach Bewertung)", padding=8
+        )
         panel.grid(row=2, column=1, sticky="nsew", padx=(10, 0))
-        panel.rowconfigure(1, weight=0)
+        panel.rowconfigure(1, weight=1)
         panel.columnconfigure(0, weight=1)
 
-        columns = ("rank", "length", "waste", "free")
+        columns = ("rank", "length", "cuts", "waste", "score")
         self.result_tree = ttk.Treeview(
             panel,
             columns=columns,
@@ -215,10 +240,11 @@ class PlatePlanningWindow(tk.Toplevel):
             selectmode="browse",
         )
         headings = {
-            "rank": ("Rang", 48),
-            "length": ("Länge", 72),
-            "waste": ("Verschnitt", 82),
-            "free": ("frei", 44),
+            "rank": ("Rang", 46),
+            "length": ("Länge", 68),
+            "cuts": ("Schnitte", 62),
+            "waste": ("Verschnitt", 76),
+            "score": ("Bewertung", 68),
         }
         for key, (label, width) in headings.items():
             self.result_tree.heading(key, text=label)
@@ -226,14 +252,54 @@ class PlatePlanningWindow(tk.Toplevel):
         self.result_tree.grid(row=0, column=0, sticky="ew")
         self.result_tree.bind("<<TreeviewSelect>>", self._on_result_selected)
 
-        self.result_details = ttk.Label(
-            panel,
-            text="Noch keine Lösung berechnet.",
-            foreground=MUTED,
-            justify="left",
-            wraplength=330,
+        details_frame = ttk.Frame(panel)
+        details_frame.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        details_frame.columnconfigure(0, weight=1)
+        details_frame.rowconfigure(0, weight=1)
+        self.result_details = tk.Text(
+            details_frame,
+            height=15,
+            width=44,
+            wrap="word",
+            relief="flat",
+            background="#f7f9fc",
+            foreground=TEXT,
+            font=("Segoe UI", 9),
+            padx=6,
+            pady=6,
         )
-        self.result_details.grid(row=1, column=0, sticky="w", pady=(10, 0))
+        self.result_details.grid(row=0, column=0, sticky="nsew")
+        detail_scroll = ttk.Scrollbar(
+            details_frame, orient="vertical", command=self.result_details.yview
+        )
+        detail_scroll.grid(row=0, column=1, sticky="ns")
+        self.result_details.configure(yscrollcommand=detail_scroll.set)
+        self.result_details.configure(state="disabled")
+        self._set_details("Noch keine Lösung berechnet.")
+
+        pareto_label = ttk.Label(
+            panel,
+            text="Zielkonflikt (Pareto: Länge ↔ Schnitte)",
+            foreground=TEXT,
+        )
+        pareto_label.grid(row=2, column=0, sticky="w", pady=(10, 2))
+        pareto_columns = ("length", "cuts", "waste")
+        self.pareto_tree = ttk.Treeview(
+            panel,
+            columns=pareto_columns,
+            show="headings",
+            height=4,
+            selectmode="none",
+        )
+        pareto_headings = {
+            "length": ("Länge", 90),
+            "cuts": ("Schnitte", 70),
+            "waste": ("Verschnitt", 90),
+        }
+        for key, (label, width) in pareto_headings.items():
+            self.pareto_tree.heading(key, text=label)
+            self.pareto_tree.column(key, width=width, anchor="center")
+        self.pareto_tree.grid(row=3, column=0, sticky="ew")
 
         legend = ttk.Label(
             panel,
@@ -246,7 +312,16 @@ class PlatePlanningWindow(tk.Toplevel):
             justify="left",
             wraplength=330,
         )
-        legend.grid(row=2, column=0, sticky="w", pady=(12, 0))
+        legend.grid(row=4, column=0, sticky="w", pady=(10, 0))
+
+    def _set_details(self, text: str) -> None:
+        widget = getattr(self, "result_details", None)
+        if widget is None:
+            return
+        widget.configure(state="normal")
+        widget.delete("1.0", "end")
+        widget.insert("1.0", text)
+        widget.configure(state="disabled")
 
     # ------------------------------------------------------------------
     # Fenster-Hilfen
@@ -308,6 +383,13 @@ class PlatePlanningWindow(tk.Toplevel):
             )
         return value
 
+    def _scoring_mode(self) -> str:
+        label = self.scoring_var.get()
+        for mode in SCORING_MODES:
+            if SCORING_LABELS[mode] == label:
+                return mode
+        return SCORING_BALANCED
+
     def _build_shapes(self) -> list:
         return shapes_from_parts(
             self.triangle, self.parts, self.height_name, self.extras
@@ -341,24 +423,30 @@ class PlatePlanningWindow(tk.Toplevel):
             max_candidates=400,
             coarse_angle_step_deg=angle_step,
             allow_free_rotation=True,
+            scoring=self._scoring_mode(),
         )
         live = bool(self.live_var.get())
         self._results = []
+        self._pareto = []
+        self._result = None
         self._live_best = None
         self._live_layout = None
         self._progress = None
         self._selected_index = 0
         for item in self.result_tree.get_children():
             self.result_tree.delete(item)
-        self.result_details.configure(
-            text="Berechnung läuft ...", foreground=MUTED
-        )
+        for item in self.pareto_tree.get_children():
+            self.pareto_tree.delete(item)
+        self._set_details("Berechnung läuft ...")
 
         self._cancel_event = threading.Event()
         self._start_button.configure(state="disabled")
         self._cancel_button.configure(state="normal")
         self.status.configure(
-            text="Berechne Platzierung (Phase A: 0°/180°) ...",
+            text=(
+                "Berechne Platzierung (Phasen A–D, Ziel: "
+                f"{SCORING_LABELS[self._scoring_mode()]}) ..."
+            ),
             foreground=MUTED,
         )
         self._live_info(
@@ -378,19 +466,19 @@ class PlatePlanningWindow(tk.Toplevel):
     def _run_worker(self, shapes, options: NestingOptions, live: bool) -> None:
         started = time.monotonic()
         try:
-            results = nest_shapes(
+            result = nest_shapes_detailed(
                 shapes,
                 options,
                 progress_cb=self._enqueue if live else None,
                 cancel_event=self._cancel_event,
             )
-            payload = ("done", results, None, time.monotonic() - started)
+            payload = ("done", result, None, time.monotonic() - started)
         except NestingError as error:
-            payload = ("error", [], str(error), time.monotonic() - started)
+            payload = ("error", None, str(error), time.monotonic() - started)
         except Exception as error:  # pragma: no cover - defensive
             payload = (
                 "error",
-                [],
+                None,
                 f"Unerwarteter Fehler bei der Berechnung: {error}",
                 time.monotonic() - started,
             )
@@ -484,6 +572,25 @@ class PlatePlanningWindow(tk.Toplevel):
         parts = [progress.phase_label]
         parts.append(f"Kandidaten: {progress.layouts}")
         parts.append(f"geprüfte Positionen: {progress.attempts}")
+        if progress.strategy:
+            parts.append(f"Strategie: {progress.strategy}")
+        if progress.groups:
+            groups = " · ".join(
+                "(" + ",".join(str(index) for index in group) + ")"
+                for group in progress.groups
+            )
+            parts.append(f"Gruppen: {groups}")
+        if progress.cuts is not None:
+            parts.append(f"Schnitte: {progress.cuts}")
+        if progress.waste_percent is not None:
+            parts.append(
+                f"Verschnitt: {format_number(progress.waste_percent, 1)} %"
+            )
+        if progress.score is not None:
+            parts.append(
+                f"Bewertung ({SCORING_LABELS[self._scoring_mode()]}): "
+                f"{format_number(progress.score, 3)}"
+            )
         if progress.best_length is not None:
             parts.append(f"beste Länge: {format_number(progress.best_length)} cm")
         parts.append(f"Zeit: {progress.elapsed_s:.1f} s")
@@ -500,7 +607,7 @@ class PlatePlanningWindow(tk.Toplevel):
         self._live_info(" · ".join(parts))
 
     def _finish(self, payload: tuple) -> None:
-        kind, results, error, duration = payload
+        kind, result, error, duration = payload
         self._worker = None
         self._search_duration = duration
         self._start_button.configure(state="normal")
@@ -510,42 +617,60 @@ class PlatePlanningWindow(tk.Toplevel):
             return
         if kind == "error" or error:
             self._results = []
+            self._pareto = []
+            self._result = None
             self.status.configure(text="Berechnung fehlgeschlagen.", foreground=INVALID)
-            self.result_details.configure(text=str(error), foreground=INVALID)
+            self._set_details(str(error))
             self._live_info("")
             self._draw_message(str(error), INVALID)
             self._report_error(str(error))
             return
-        if not results:
+        if not isinstance(result, NestingResult) or not result.layouts:
             self._results = []
+            self._pareto = []
+            self._result = result if isinstance(result, NestingResult) else None
             message = (
                 "Keine gültige Anordnung gefunden. Bitte Zeitbudget erhöhen "
                 "oder die Zuschnitt-Zugaben prüfen."
             )
             self.status.configure(text=message, foreground=INVALID)
-            self.result_details.configure(text=message, foreground=INVALID)
+            self._set_details(message)
             self._live_info(
                 f"Fertig nach {duration:.1f} s – keine gültige Lösung."
             )
             self._draw_message(message, INVALID)
             return
 
-        self._results = list(results)
+        self._result = result
+        self._results = list(result.layouts)
+        self._pareto = list(result.pareto)
         self._live_best = self._results[0]
         self._live_layout = self._results[0]
         self._populate_results()
+        self._populate_pareto()
         self._show_result(0)
         best = self._results[0]
-        self.status.configure(
-            text=(
-                f"{len(self._results)} Lösung(en) · beste Länge "
-                f"{format_number(best.length)} cm · Verschnitt "
-                f"{format_number(best.waste_area, 1)} cm² "
-                f"({format_number(best.waste_percent, 1)} %) · "
-                f"{duration:.1f} s · Heuristik, kein nachgewiesenes Optimum"
-            ),
-            foreground=VALID,
+        cancelled = result.cancelled
+        timed_out = result.timed_out
+        shortfall = result.complete_shortfall
+        status_text = (
+            f"{len(self._results)} Lösung(en) · beste Länge "
+            f"{format_number(best.length)} cm · Verschnitt "
+            f"{format_number(best.waste_area, 1)} cm² "
+            f"({format_number(best.waste_percent, 1)} %) · "
+            f"Schnitte {best.cut_operations} · "
+            f"{duration:.1f} s · Heuristik, kein nachgewiesenes Optimum"
         )
+        if cancelled:
+            status_text = "Abgebrochen – " + status_text
+        elif timed_out:
+            status_text = "Zeitbudget erreicht – " + status_text
+        if shortfall:
+            status_text = (
+                status_text
+                + " · weniger als 3 unterschiedliche Lösungen gefunden"
+            )
+        self.status.configure(text=status_text, foreground=VALID)
         checked = sum(1 for layout in self._results if validate_layout(layout))
         if checked:
             self.status.configure(
@@ -553,8 +678,10 @@ class PlatePlanningWindow(tk.Toplevel):
             )
         self._live_info(
             f"Fertig nach {duration:.1f} s · "
-            f"{self._progress.layouts if self._progress else len(self._results)} "
-            "Kandidaten geprüft."
+            f"{result.candidates} Kandidaten geprüft · "
+            f"Phasen: " + ", ".join(
+                f"{name}={count}" for name, count in result.phase_counts
+            )
         )
 
     def _report_error(self, message: str) -> None:
@@ -571,6 +698,11 @@ class PlatePlanningWindow(tk.Toplevel):
         for index, layout in enumerate(self._results):
             rank = f"{index + 1}."
             label = rank + (" ★" if index == 0 else "")
+            score = layout.score(
+                self._scoring_mode(),
+                self._weight_pair()[0],
+                self._weight_pair()[1],
+            )
             self.result_tree.insert(
                 "",
                 "end",
@@ -578,8 +710,26 @@ class PlatePlanningWindow(tk.Toplevel):
                 values=(
                     label,
                     f"{format_number(layout.length)} cm",
+                    str(layout.cut_operations),
                     f"{format_number(layout.waste_percent, 1)} %",
-                    str(layout.free_angle_count),
+                    format_number(score, 3),
+                ),
+            )
+
+    def _weight_pair(self) -> tuple[float, float]:
+        return 0.5, 0.5
+
+    def _populate_pareto(self) -> None:
+        for item in self.pareto_tree.get_children():
+            self.pareto_tree.delete(item)
+        for layout in self._pareto:
+            self.pareto_tree.insert(
+                "",
+                "end",
+                values=(
+                    f"{format_number(layout.length)} cm",
+                    str(layout.cut_operations),
+                    f"{format_number(layout.waste_percent, 1)} %",
                 ),
             )
 
@@ -600,26 +750,75 @@ class PlatePlanningWindow(tk.Toplevel):
         layout = self._results[index]
         if str(index) not in self.result_tree.selection():
             self.result_tree.selection_set(str(index))
-        angles = ", ".join(f"{format_number(value)}°" for value in layout.angles)
+        angles = ", ".join(
+            f"{format_number(value)}°" for value in layout.angles
+        )
         phase = (
             "Phase A (nur 0°/180°)"
             if not layout.free_rotation
-            else "Phase B (freie Drehwinkel)"
+            else "Phasen B–D (freie/gemischte Drehungen)"
         )
-        self.result_details.configure(
-            text=(
-                f"Rang {index + 1} · {phase}\n"
-                f"Materiallänge: {format_number(layout.length)} cm\n"
-                f"Verschnittfläche: {format_number(layout.waste_area, 1)} cm²\n"
-                f"Verschnittanteil: {format_number(layout.waste_percent, 1)} %\n"
-                f"Rechtwinklig (0°/180°): {layout.right_angle_count} Teile\n"
-                f"Freie Winkel: {layout.free_angle_count} Teile\n"
-                f"Winkel: {angles}\n"
-                f"Gefunden nach: {layout.elapsed_s:.2f} s\n"
-                "Heuristische Lösung – kein mathematischer Optimalitätsnachweis."
-            ),
-            foreground=TEXT,
+        plan = layout.cut_plan
+        lines: list[str] = []
+        lines.append(f"Rang {index + 1} von {len(self._results)}")
+        lines.append(f"Verfahren: {layout.strategy or '–'}")
+        lines.append(
+            f"Bewertung ({SCORING_LABELS[self._scoring_mode()]}): "
+            f"{format_number(layout.score(self._scoring_mode()), 4)}"
         )
+        lines.append(
+            f"Materiallänge: {format_number(layout.length)} cm "
+            f"(Mindestlänge {format_number(layout.min_length)} cm)"
+        )
+        lines.append(
+            f"Verschnittfläche: {format_number(layout.waste_area, 1)} cm² "
+            f"({format_number(layout.waste_percent, 1)} %)"
+        )
+        lines.append(
+            "Modellierte Schnittanzahl: "
+            f"{plan.operations} ({plan.separating_operations} Trennschnitt(e), "
+            f"{plan.trim_operations} Abfallschnitt(e), {plan.plunges} Zusatzansatz/Ansätze)"
+        )
+        lines.append(
+            f"Schnittlinien: {len(plan.segments)} · "
+            f"{format_number(plan.total_length, 1)} cm, "
+            f"davon {format_number(plan.shared_length, 1)} cm gemeinsam "
+            f"({plan.shared_edges} gemeinsame Linie(n))"
+        )
+        lines.append(f"Schnittmodell: {plan.assumptions.describe()}")
+        lines.append(
+            f"Drehungen: {angles} · Vierteldrehungen: "
+            f"{layout.quarter_turn_count} · alternative Winkel: "
+            f"{layout.alternative_angle_count}"
+        )
+        if layout.groups:
+            groups = "; ".join(
+                "(" + ", ".join(str(value) for value in group) + ")"
+                for group in layout.groups
+            )
+            lines.append(
+                f"Gruppen: {groups} · {layout.group_count} Gruppe(n), "
+                f"{layout.single_count} Einzelteil(e)"
+            )
+        else:
+            lines.append(f"Gruppen: keine · {len(layout.items)} Einzelteile")
+        lines.append("")
+        lines.append("Positionen:")
+        for item in layout.items:
+            lines.append(
+                f"  Teil {item.part_index} · {format_number(item.angle)}° · "
+                f"x={format_number(item.bounds[0])} cm · "
+                f"y={format_number(item.bounds[1])} cm · "
+                f"{format_number(item.width)}×{format_number(item.height)} cm"
+            )
+        lines.append("")
+        lines.append(
+            f"Gefunden nach: {layout.elapsed_s:.2f} s · Phase: {layout.phase}"
+        )
+        lines.append(
+            "Heuristische Lösung – kein mathematischer Optimalitätsnachweis."
+        )
+        self._set_details("\n".join(lines))
         self._live_layout = layout
         self._live_best = layout
         self._draw_strip()
@@ -940,17 +1139,25 @@ class PlatePlanningWindow(tk.Toplevel):
                 max_candidates=40,
                 coarse_angle_step_deg=self._angle_step_degrees(),
                 allow_free_rotation=True,
+                scoring=self._scoring_mode(),
             )
             started = time.monotonic()
-            results = nest_shapes(shapes, options)
+            result = nest_shapes_detailed(shapes, options)
             duration = time.monotonic() - started
         except NestingError as error:
             self._results = []
+            self._pareto = []
+            self._result = None
             self.status.configure(text=str(error), foreground=INVALID)
-            self.result_details.configure(text=str(error), foreground=INVALID)
+            self._set_details(str(error))
             self._draw_message(str(error), INVALID)
             return []
         finally:
             self._suppress_dialogs = False
-        self._finish(("done", results, None, duration))
+        self._result = result
+        self._results = list(result.layouts)
+        self._pareto = list(result.pareto)
+        self._live_best = self._results[0] if self._results else None
+        self._live_layout = self._live_best
+        self._finish(("done", result, None, duration))
         return list(self._results)
