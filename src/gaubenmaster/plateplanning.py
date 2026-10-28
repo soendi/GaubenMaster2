@@ -67,7 +67,7 @@ class PlatePlanningWindow(tk.Toplevel):
         self.extras = extras
 
         self.live_var = tk.BooleanVar(value=True)
-        self.budget_var = tk.StringVar(value="5")
+        self.budget_var = tk.StringVar(value="10")
         self.angle_step_var = tk.StringVar(value="10")
         self.scoring_var = tk.StringVar(value=SCORING_LABELS[SCORING_BALANCED])
 
@@ -134,7 +134,7 @@ class PlatePlanningWindow(tk.Toplevel):
         ttk.Spinbox(
             budget_frame,
             from_=3,
-            to=10,
+            to=60,
             increment=1,
             width=4,
             textvariable=self.budget_var,
@@ -365,9 +365,9 @@ class PlatePlanningWindow(tk.Toplevel):
         try:
             value = float(self.budget_var.get().replace(",", "."))
         except ValueError:
-            raise NestingError("Das Zeitbudget muss eine Zahl zwischen 3 und 10 sein.")
-        if not 3.0 <= value <= 10.0:
-            raise NestingError("Das Zeitbudget muss zwischen 3 und 10 Sekunden liegen.")
+            raise NestingError("Das Zeitbudget muss eine Zahl zwischen 3 und 60 sein.")
+        if not 3.0 <= value <= 60.0:
+            raise NestingError("Das Zeitbudget muss zwischen 3 und 60 Sekunden liegen.")
         return value
 
     def _angle_step_degrees(self) -> float:
@@ -420,7 +420,7 @@ class PlatePlanningWindow(tk.Toplevel):
         options = NestingOptions(
             width=STRIP_WIDTH_CM,
             time_budget_s=budget,
-            max_candidates=400,
+            max_candidates=2000,
             coarse_angle_step_deg=angle_step,
             allow_free_rotation=True,
             scoring=self._scoring_mode(),
@@ -1135,8 +1135,8 @@ class PlatePlanningWindow(tk.Toplevel):
             shapes = self._build_shapes()
             options = NestingOptions(
                 width=STRIP_WIDTH_CM,
-                time_budget_s=2.0,
-                max_candidates=40,
+                time_budget_s=5.0,
+                max_candidates=200,
                 coarse_angle_step_deg=self._angle_step_degrees(),
                 allow_free_rotation=True,
                 scoring=self._scoring_mode(),

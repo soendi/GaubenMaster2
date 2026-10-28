@@ -105,7 +105,7 @@ Koordinaten, Suchstrategie, aktuelle Paar-/Gruppenbildungen, Schnittanzahl,
 Bewertung beider Ziele, Verschnitt und ob ein Kandidat gültig ist oder
 verworfen wurde. Die Checkbox **Live-Ansicht während der Berechnung anzeigen**
 ist standardmäßig aktiv und beeinflusst weder Suchstrategie noch Ergebnis.
-Zeitbudget (3–10 s) und Winkelschritt sind einstellbar; ein Abbruch oder
+Zeitbudget (3–60 s) und Winkelschritt sind einstellbar; ein Abbruch oder
 Timeout liefert die beste bisherige gültige Lösung. Bei weniger als drei
 unterschiedlichen Lösungen wird dies gekennzeichnet.
 
