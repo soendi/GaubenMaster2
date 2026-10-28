@@ -877,9 +877,13 @@ class PlatePlanningWindow(tk.Toplevel):
 
         length = max(
             layout.length if layout is not None else 0.0,
-            progress.layout.length if progress and progress.layout else 0.0,
+            (
+                progress.layout.length
+                if progress and progress.layout and self._worker is not None
+                else 0.0
+            ),
         )
-        attempt = progress if progress and progress.attempt_polygon else None
+        attempt = progress if (progress and progress.attempt_polygon and self._worker is not None) else None
         if attempt is not None and attempt.attempt_polygon:
             length = max(
                 length,
