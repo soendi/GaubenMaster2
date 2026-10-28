@@ -250,7 +250,7 @@ class UiSmokeTests(unittest.TestCase):
         window = windows[0]
         try:
             window.update_idletasks()
-            window._recalculate()
+            results = window._recalculate()
             with (
                 mock.patch.object(
                     window.canvas, "winfo_width", return_value=900
@@ -260,9 +260,9 @@ class UiSmokeTests(unittest.TestCase):
                 ),
             ):
                 window._draw_strip()
-            self.assertEqual(len(window._strip["items"]), len(self.app.parts))
-            self.assertEqual(window._unplaced, [])
-            self.assertIn("Coil-Länge", window.status.cget("text"))
+            self.assertTrue(results)
+            self.assertEqual(len(window._results[0].items), len(self.app.parts))
+            self.assertIn("Lösung", window.status.cget("text"))
             self.assertGreater(len(window.canvas.find_all()), 0)
         finally:
             window.destroy()
