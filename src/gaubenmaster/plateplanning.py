@@ -1,7 +1,7 @@
 """Plattenplanung für GaubenMaster2 - Ausrichtung paralleler Seiten mit Plattenbreite.
 
 Diese Version implementiert eine Polygon-Verschachtelungsstrategie, bei der die parallelen Seiten
-jedes Teils parallel zur festen Plattenbreite von 1000 mm angeordnet werden, um eine optimale
+jedes Teils parallel zur festen Plattenbreite von 100 cm angeordnet werden, um eine optimale
 Fertigungsausrichtung zu gewährleisten und Verschnitt zu minimieren.
 
 Wichtige Features:
@@ -23,7 +23,7 @@ from gaubenmaster.geometry import Part, Point, Triangle, polygon_area, polygon_c
 from gaubenmaster.partdraw import _extended_geometry, _local_points, height_axis
 from gaubenmaster.plot import BACKGROUND, TAB20, blend
 
-STRIP_WIDTH_CM = 100.0  # 1000 mm = 100 cm
+STRIP_WIDTH_CM = 100.0  # 100 cm
 ANGLE_STEP_DEG = 1
 NESTING_COARSE_STEP_DEG = 5.0
 NESTING_FINE_STEP_DEG = 1.0
@@ -643,7 +643,7 @@ class PlatePlanningWindow(tk.Toplevel):
 
         ttk.Label(
             controls,
-            text=f"Breite: {format_number(STRIP_WIDTH_CM)} mm (fest)",
+            text=f"Breite: {format_number(STRIP_WIDTH_CM)} cm (fest)",
         ).grid(row=0, column=0, sticky="w", padx=(0, 18), pady=2)
         ttk.Label(
             controls,
@@ -664,10 +664,10 @@ class PlatePlanningWindow(tk.Toplevel):
         info = ttk.Label(
             outer,
             text=(
-                f"Zuschnitt: Länge+ {format_number(self.extras[0])} mm · "
-                f"Fv {format_number(self.extras[1])} mm · "
-                f"Fh {format_number(self.extras[2])} mm\n"
-                f"Die Teile werden auf einer 1000-mm-Coil mit fester Breite "
+                f"Zuschnitt: Länge+ {format_number(self.extras[0])} cm · "
+                f"Fv {format_number(self.extras[1])} cm · "
+                f"Fh {format_number(self.extras[2])} cm\n"
+                f"Die Teile werden auf einer 100-cm-Coil mit fester Breite "
                 f"verschachtelt. Die parallelen Seiten jedes Teils werden parallel "
                 f"zur Coil-Breite ausgerichtet, um die Fertigungsausrichtung zu optimieren."
             ),
@@ -745,7 +745,7 @@ class PlatePlanningWindow(tk.Toplevel):
             self.rotate_var.get(),
         )
         self._strip, self._unplaced = _pack_strip_best(
-            shapes, STRIP_WIDTH_CM * 10
+            shapes, STRIP_WIDTH_CM
         )
         self._update_status()
         self._draw_strip()
@@ -765,7 +765,7 @@ class PlatePlanningWindow(tk.Toplevel):
             )
             text = (
                 f"{placed_parts} von {total_parts} Teilen platziert · "
-                f"Coil-Länge {format_number(length)} mm · "
+                f"Coil-Länge {format_number(length)} cm · "
                 f"Verschnitt {format_number(waste, 1)} %"
             )
         else:
@@ -774,7 +774,7 @@ class PlatePlanningWindow(tk.Toplevel):
         if self._unplaced:
             text += (
                 f" · {len(self._unplaced)} Teil(e) passen nicht in die "
-                f"Coil-Breite von {format_number(STRIP_WIDTH_CM * 10)} mm"
+                f"Coil-Breite von {format_number(STRIP_WIDTH_CM)} cm"
             )
             foreground = INVALID
         else:
@@ -805,9 +805,9 @@ class PlatePlanningWindow(tk.Toplevel):
             return
 
         length = _strip_length(self._strip)
-        scale = (width - 160.0) / (STRIP_WIDTH_CM * 10)
+        scale = (width - 160.0) / STRIP_WIDTH_CM
         scale = max(0.05, min(scale, 12.0))
-        strip_w = STRIP_WIDTH_CM * 10 * scale
+        strip_w = STRIP_WIDTH_CM * scale
         strip_h = max(1.0, length * scale)
         margin_x = (width - strip_w) / 2.0 + 20.0
         top = 56.0
@@ -816,8 +816,8 @@ class PlatePlanningWindow(tk.Toplevel):
             margin_x,
             18.0,
             text=(
-                f"Material · {format_number(STRIP_WIDTH_CM * 10)} mm breit · "
-                f"{format_number(length)} mm lang"
+                f"Material · {format_number(STRIP_WIDTH_CM)} cm breit · "
+                f"{format_number(length)} cm lang"
             ),
             fill=TEXT,
             font=("Segoe UI", 10, "bold"),
@@ -901,7 +901,7 @@ class PlatePlanningWindow(tk.Toplevel):
         self.canvas.create_text(
             x + strip_w / 2.0,
             y - 9.0,
-            text=f"{format_number(STRIP_WIDTH_CM * 10)} mm",
+            text=f"{format_number(STRIP_WIDTH_CM)} cm",
             fill=TEXT,
             font=("Segoe UI", 9),
         )
@@ -920,7 +920,7 @@ class PlatePlanningWindow(tk.Toplevel):
         self.canvas.create_text(
             x - 10.0,
             top + strip_h / 2.0,
-            text=f"{format_number(length)} mm",
+            text=f"{format_number(length)} cm",
             fill=TEXT,
             font=("Segoe UI", 9),
             angle=90,
