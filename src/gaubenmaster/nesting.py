@@ -44,7 +44,7 @@ Point = tuple[float, float]
 Polygon = tuple[Point, ...]
 
 STRIP_WIDTH_CM = 100.0
-GEOMETRY_TOLERANCE = 1e-7
+GEOMETRY_TOLERANCE = 1e-3
 ANGLE_TOLERANCE = 1e-6
 MIN_ANGLE_STEP_DEG = 0.5
 
