@@ -75,7 +75,7 @@ Höhen-Teilung legt die Einzelteile auf eine Coil mit fester Breite von 100 cm.
 Die Teile werden inklusive `Länge+`, `Fv` und `Fh` zugeschnitten und als
 Polygone mit ihren echten Konturen verschachtelt. Die Standardwerte der
 Zuschnittfelder sind `Länge+ = 3,0 cm`, `Fv = 3,5 cm` und `Fh = 4,5 cm`;
-das Fenster öffnet mit 1400 × 900 Pixeln.
+das Fenster öffnet mit 1400 × 1000 Pixeln.
 
 Die Optimierung verfolgt zwei Ziele gemeinsam: **Materialverschnitt
 minimieren** und **modellierte Schnittanzahl minimieren**. Vier
@@ -86,26 +86,37 @@ Schnittanzahl priorisieren oder ausgewogen, Standard). Paar- und
 Gruppenbildungen (2–4 Teile) sind auflösbar; die Kollisionsprüfung arbeitet
 auf echten Konturen, nicht nur auf Bounding Boxes.
 
-Die **modellierte Schnittanzahl** trennt geometrische Trennlinie,
-zusammenhängenden Schnittweg und tatsächlichen Schnittvorgang: gemeinsame
-Linien werden einmal gezählt, Berührungen gelten nicht als gemeinsame
-Schnittlinie, Materialrandkanten werden nicht geschnitten, Schnittfugenbreite
-ist 0 cm. Die Annahmen sind konfigurierbar (Ansatz am Materialrand ja/nein).
+Die **modellierte Schnittanzahl** zählt jeden Schnitt als eine gerade Linie:
+eine Kante eines Teils oder die fluchtenden Kanten mehrerer Teile, die
+zusammengefasst werden, sofern sie lückenlos aneinanderliegen. Ein Schnitt
+liegt nur dann vor, wenn diese Linie **nicht** mit der Außenseite der Platte
+zusammenfällt. Zwei Beispiele: Ein Rechteck in einer Plattenecke mit zwei
+randbündigen Seiten braucht zwei Schnitte; zwei nebeneinanderliegende 50 × 50
+cm große Quadrate mit randbündiger Ober-, linker und rechter Plattenkante
+brauchen einen Schnitt entlang der gemeinsamen Unterkante und einen zwischen
+den Teilen, also ebenfalls zwei. Materialrandkanten werden nicht geschnitten,
+Schnittfugenbreite ist 0 cm. Die Annahmen sind konfigurierbar (Ansatz am
+Materialrand ja/nein, wobei dieser nur die informative Zahl der Ansätze
+beeinflusst).
 
 Mehrere Startreihenfolgen und lokale Verbesserungen liefern bis zu fünf
 unterschiedliche, vollständig geometrisch geprüfte Anordnungen mit Rang,
-Gesamtbewertung, Länge, Verschnittfläche/-anteil, modellierte Schnittanzahl,
-Schnittmodell-Annahmen, Winkeln, Positionen, Paar-/Gruppenbildungen, Anzahl
-Einzelteile/Gruppen, gemeinsamen Schnittlinien und Rechenzeit. Eine
+Gesamtbewertung, Länge, Verschnittfläche/-anteil, Schnittanzahl als gerade
+Linien, Schnittlänge, Schnittmodell-Annahmen, Winkeln, Positionen,
+Paar-/Gruppenbildungen, Anzahl Einzelteile/Gruppen, gemeinsamen Schnittlinien
+und Rechenzeit. Eine
 Pareto-Front über (Verschnitt, Schnitte) wird zusätzlich als
 Zielkonflikt-Tabelle angezeigt. Die Anzeige kennzeichnet die Lösung als
-heuristisch gefunden, nicht als nachgewiesenes Optimum.
+heuristisch gefunden, nicht als nachgewiesenes Optimum. In der fertigen
+Anordnung werden die modellierten Schnittlinien als rote, gepunktete Linien
+direkt auf den Teilen eingezeichnet, sodass die angezeigte Schnittanzahl
+räumlich nachvollziehbar ist.
 
 Im Modus **Schnittanzahl priorisieren** belohnt die Heuristik zusätzlich
 durchgehende gerade Schnittlinien: Gleiche Breiten werden bevorzugt in
 Spalten (bzw. Zeilen) gestapelt, die Teile abwechselnd um 180° gedreht, sodass
 ihre Kanten ohne Versatz über viele Teile weiterlaufen. Eine lange Linie zählt
-als ein Schnittweg, statt viele kurze Einzelanschnitte zu benötigen. Eine
+als ein Schnitt, statt viele kurze Einzelanschnitte zu benötigen. Eine
 solche Anordnung mit der längsten durchgehenden Linie ist immer unter den
 angebotenen fünf Lösungen.
 

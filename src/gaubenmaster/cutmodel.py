@@ -1,34 +1,33 @@
 """Transparentes Schnittkostenmodell fuer manuelles Schneiden.
 
-Das Modell beantwortet die Frage, wie viele manuelle Schnittvorgaenge eine
-gegebene Anordnung voraussichtlich benoetigt. Es arbeitet ausschliesslich auf
-den tatsaechlichen Polygonkonturen und ist bewusst als austauschbares Modell
-angelegt: Die Annahmen stecken in :class:`CutAssumptions`, die Auswertung in
+Das Modell beantwortet die Frage, wie viele gerade Schnitte eine gegebene
+Anordnung benoetigt. Es arbeitet ausschliesslich auf den tatsaechlichen
+Polygonkonturen und ist bewusst als austauschbares Modell angelegt: Die
+Annahmen stecken in :class:`CutAssumptions`, die Auswertung in
 :func:`compute_cut_plan`.
 
-Drei Begriffe werden getrennt:
-
-* **Geometrische Trennlinie** - eine Kante eines Teils, die nicht auf dem
-  Materialrand liegt und deshalb geschnitten werden muss.
-* **Zusammenhaengender Schnittweg** - eine Folge von Trennlinien, die ohne
-  Absetzen zusammenhaengend geschnitten werden kann. Linien, die sich in einem
-  Punkt beruehren, sind zusammenhaengend; ein T-Stoss erzeugt eine
-  Verzweigung und beendet einen Weg.
-* **Schnittvorgang** - ein realer manueller Ansatz. Er entspricht hier einem
-  zusammenhaengenden Schnittweg plus, falls konfiguriert, einem zusaetzlichen
-  Ansatz fuer Konturen, die nicht am Materialrand beginnen.
+Ein **Schnitt** ist eine gerade Linie, die aus einer Kante eines Teils oder
+aus den fluchtenden Kanten mehrerer Teile besteht und **nicht** mit dem
+Materialrand (Aussenseite der Platte) zusammenfaellt. Kollineare, lueckenlos
+aneinanderliegende Kanten werden zu genau einem Schnitt zusammengefasst -
+auch dann, wenn sie von mehreren Teilen stammen. Ein einzelnes Rechteck in
+einer Ecke der Platte mit zwei randbuendigen Seiten braucht damit zwei
+Schnitte; zwei nebeneinanderliegende Quadrate, die oben, links und rechts
+randbuendig sind, brauchen einen Schnitt an der gemeinsamen Unterkante und
+einen Schnitt zwischen den Teilen, also ebenfalls zwei.
 
 Standardannahmen (alle konfigurierbar):
 
 * Schnittfugenbreite 0 cm, Konturen werden nicht veraendert.
-* Eine gemeinsame Trennlinie zweier Teile wird genau einmal gezaehlt.
+* Eine gemeinsame Trennlinie zweier Teile ist eine physische Linie und wird
+  genau einmal gezaehlt.
 * Kollineare, lueckenlos aneinanderliegende Trennlinien bilden einen
-  Schnittweg; ein ungeschnittener Abschnitt dazwischen trennt die Wege.
+  durchgehenden Schnitt; ein ungeschnittener Abschnitt dazwischen trennt die
+  Schnitte.
 * Kanten auf dem Materialrand (x=0, x=Breite, y=0, y=Laenge) muessen nicht
   geschnitten werden.
-* Schnitte duerfen grundsaetzlich im Material beginnen
-  (``start_at_border = False``). Wird ``True`` gesetzt, kostet jede
-  zusammenhaengende Kontur ohne Materialrand-Kontakt einen Zusatzansatz.
+* ``start_at_border`` beeinflusst nur die informative Zahl der Ansaetze,
+  nicht die Schnittanzahl.
 
 Die ermittelte Zahl ist eine **modellierte** Schnittanzahl. Ohne bekanntes
 Werkzeug und ohne Regeln fuer Werkstueckhandhabung ist die real ausfuehrbare
@@ -63,7 +62,6 @@ class CutAssumptions:
 
     name: str = "Manuell, 0 cm Fugenbreite"
     kerf_cm: float = 0.0
-    count_shared_once: bool = True
     merge_collinear: bool = True
     ignore_material_border: bool = True
     start_at_border: bool = False
@@ -80,11 +78,6 @@ class CutAssumptions:
         return self
 
     def describe(self) -> str:
-        shared = (
-            "gemeinsame Linie einmal"
-            if self.count_shared_once
-            else "gemeinsame Linie je Teil"
-        )
         merge = (
             "kollineare Wege werden zusammengefasst"
             if self.merge_collinear
@@ -102,7 +95,8 @@ class CutAssumptions:
         )
         return (
             f"Schnittmodell '{self.name}': Fugenbreite "
-            f"{self.kerf_cm:g} cm, {shared}, {merge}, {border}, {start}."
+            f"{self.kerf_cm:g} cm, gemeinsame Linie einmal, {merge}, "
+            f"{border}, {start}."
         )
 
 
@@ -144,11 +138,9 @@ class CutPlan:
 
     def summary(self) -> str:
         return (
-            f"{self.operations} modellierte Schnittvorgaenge "
+            f"{self.operations} Schnitt(e) als gerade Linie(n) "
             f"({self.separating_operations} Trennschnitt(e), "
-            f"{self.trim_operations} Abfallschnitt(e), "
-            f"{self.plunges} Zusatzansatz/Ansätze) auf "
-            f"{len(self.segments)} Linien, "
+            f"{self.trim_operations} Schnitt(e) zum Abfall), "
             f"{self.total_length:.1f} cm Schnittlaenge, davon "
             f"{self.shared_length:.1f} cm gemeinsam genutzt."
         )
@@ -253,14 +245,15 @@ def _shared_coverage(
 
 def _analyze_graph(
     edges: Sequence[tuple[Node, Node, bool]]
-) -> tuple[int, int, int, int, int]:
-    """Minimale Zahl zusammenhaengender Wege je Komponente.
+) -> tuple[int, int]:
+    """Zaehlt zusammenhaengende Wege mit und ohne Materialrand-Kontakt.
 
-    Rueckgabe: (Wege, Wege mit Randkontakt, Wege ohne Randkontakt,
-    Wege in Komponenten mit gemeinsamer Linie, Wege ohne gemeinsame Linie).
+    Rueckgabe: (Wege mit Randkontakt, Wege ohne Randkontakt). Die Zahl der
+    Wege dient nur noch der informativen Angabe, wie oft ein Ansatz noetig
+    ist; die Schnittanzahl selbst ergibt sich aus den geraden Linien.
     """
     if not edges:
-        return 0, 0, 0, 0, 0
+        return 0, 0
     adjacency: dict[Node, list[Node]] = {}
     for start, end, _separated in edges:
         adjacency.setdefault(start, []).append(end)
@@ -282,14 +275,10 @@ def _analyze_graph(
     for node in adjacency:
         groups.setdefault(find(node), []).append(node)
 
-    separated_roots = {find(start) for start, _end, flag in edges if flag}
-
-    trails = border_paths = inner_paths = 0
-    separating_paths = trim_paths = 0
-    for root, nodes in groups.items():
+    border_paths = inner_paths = 0
+    for nodes in groups.values():
         odd = sum(1 for node in nodes if len(adjacency[node]) % 2 == 1)
         count = max(1, odd // 2)
-        trails += count
         if any(
             abs(node[0]) <= SNAP_TOLERANCE or abs(node[1]) <= SNAP_TOLERANCE
             for node in nodes
@@ -297,11 +286,7 @@ def _analyze_graph(
             border_paths += count
         else:
             inner_paths += count
-        if root in separated_roots:
-            separating_paths += count
-        else:
-            trim_paths += count
-    return trails, border_paths, inner_paths, separating_paths, trim_paths
+    return border_paths, inner_paths
 
 
 def compute_cut_plan(
@@ -338,8 +323,6 @@ def compute_cut_plan(
     shared_segments: list[CutSegment] = []
     total_length = 0.0
     shared_total = 0.0
-    extra_shared_operations = 0
-
     for (ux, uy, offset), pieces in lines.items():
         pieces.sort(key=lambda entry: (entry[0], entry[1]))
         merged: list[list[tuple[float, float, int]]] = []
@@ -376,8 +359,6 @@ def compute_cut_plan(
             if not separated:
                 continue
             shared_total += shared_length
-            if not rules.count_shared_once:
-                extra_shared_operations += max(0, len(owners) - 1)
             for part_start, part_end in shared_parts:
                 shared_segments.append(
                     CutSegment(
@@ -390,11 +371,11 @@ def compute_cut_plan(
                 )
 
     edges = _split_edges(segments)
-    trails, border_paths, inner_paths, separating_ops, trim_ops = _analyze_graph(
-        edges
-    )
+    border_paths, inner_paths = _analyze_graph(edges)
     plunges = inner_paths if rules.start_at_border else 0
-    operations = trails + plunges + extra_shared_operations
+    operations = len(segments)
+    separating_ops = sum(1 for segment in segments if segment.separated)
+    trim_ops = operations - separating_ops
     lower_bound = max(1, len(polygons) - len(shared_segments))
 
     return CutPlan(

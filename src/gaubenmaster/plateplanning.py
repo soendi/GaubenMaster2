@@ -15,6 +15,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from gaubenmaster.formatting import format_number
+from gaubenmaster.cutmodel import CutModelError
 from gaubenmaster.geometry import Part, Triangle, polygon_centroid
 from gaubenmaster.nesting import (
     SCORING_BALANCED,
@@ -50,6 +51,7 @@ MUTED = "#5b6878"
 VALID = "#137333"
 INVALID = "#b3261e"
 ATTENTION = "#a65b00"
+CUT_LINE = "#d93025"
 
 LIVE_UPDATE_MS = 50
 CANVAS_LEFT = 70
@@ -97,7 +99,7 @@ class PlatePlanningWindow(tk.Toplevel):
         self.update_interval_ms = LIVE_UPDATE_MS
 
         self.title("Plattenplanung")
-        self.geometry("1400x900")
+        self.geometry("1400x1000")
         self.minsize(980, 640)
         self.configure(background=BACKGROUND)
         self.transient(master.winfo_toplevel())
@@ -207,9 +209,10 @@ class PlatePlanningWindow(tk.Toplevel):
                 f"Fh {format_number(self.extras[2])} cm   |   "
                 "Vier Drehungsphasen (A 0°/180°, B 90°/270°, C alternative "
                 "Winkel, D gemischt) konkurrieren über die gewählte Bewertung. "
-                "Die Schnittanzahl ist modelliert (Fugenbreite 0 cm, "
-                "gemeinsame Linien einfach gezählt) und keine gemessene "
-                "Werkzeugzahl. Heuristik, kein nachgewiesenes Optimum."
+                "Die Schnittanzahl zählt jede gerade Innenlinie einmal "
+                "(Fugenbreite 0 cm, fluchtende Kanten zusammengefasst) und "
+                "ist keine gemessene Werkzeugzahl. Heuristik, kein "
+                "nachgewiesenes Optimum."
             ),
             foreground=MUTED,
             justify="left",
@@ -802,13 +805,12 @@ class PlatePlanningWindow(tk.Toplevel):
             f"({format_number(layout.waste_percent, 1)} %)"
         )
         lines.append(
-            "Modellierte Schnittanzahl: "
-            f"{plan.operations} ({plan.separating_operations} Trennschnitt(e), "
-            f"{plan.trim_operations} Abfallschnitt(e), {plan.plunges} Zusatzansatz/Ansätze)"
+            f"Schnitte: {plan.operations} gerade Linie(n) "
+            f"({plan.separating_operations} Trennschnitt(e), "
+            f"{plan.trim_operations} Schnitt(e) zum Abfall)"
         )
         lines.append(
-            f"Schnittlinien: {len(plan.segments)} · "
-            f"{format_number(plan.total_length, 1)} cm, "
+            f"Schnittlänge: {format_number(plan.total_length, 1)} cm, "
             f"davon {format_number(plan.shared_length, 1)} cm gemeinsam "
             f"({plan.shared_edges} gemeinsame Linie(n))"
         )
@@ -948,6 +950,8 @@ class PlatePlanningWindow(tk.Toplevel):
                 and self._live_best is not layout
             ):
                 caption += " · grau gestrichelt = beste Lösung"
+            if layout.complete:
+                caption += " · rot gepunktet = Schnittlinien"
             self.canvas.create_text(
                 left,
                 38.0,
@@ -991,6 +995,8 @@ class PlatePlanningWindow(tk.Toplevel):
                     )
             for item in layout.items:
                 self._draw_item(item, left, top, scale)
+            if layout.complete:
+                self._draw_cuts(layout, left, top, scale)
 
         if attempt is not None:
             self._draw_attempt(attempt, left, top, scale)
@@ -1032,6 +1038,26 @@ class PlatePlanningWindow(tk.Toplevel):
 
         total_height = max(top + strip_h + 60.0, height_px)
         self.canvas.configure(scrollregion=(0, 0, width_px, total_height))
+
+    def _draw_cuts(self, layout: Layout, left: float, top: float, scale: float) -> None:
+        """Zeichnet die modellierten Schnittlinien rot gepunktet ueber die Teile."""
+        try:
+            plan = layout.cut_plan
+        except (CutModelError, ZeroDivisionError):
+            return
+        for segment in plan.segments:
+            start_x, start_y = segment.start
+            end_x, end_y = segment.end
+            self.canvas.create_line(
+                left + start_x * scale,
+                top + start_y * scale,
+                left + end_x * scale,
+                top + end_y * scale,
+                fill=CUT_LINE,
+                width=2,
+                dash=(6, 4),
+                capstyle="round",
+            )
 
     def _draw_item(self, item, left: float, top: float, scale: float) -> None:
         color = TAB20[(item.part_index - 1) % len(TAB20)]

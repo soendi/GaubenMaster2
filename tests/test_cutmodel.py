@@ -22,11 +22,28 @@ def rect(x0, y0, x1, y1):
 
 
 class CutModelTests(unittest.TestCase):
-    def test_single_polygon_needs_one_operation(self):
+    def test_free_standing_polygon_needs_four_cuts(self):
         plan = compute_cut_plan([(1, rect(10, 10, 50, 30))], 100, 40)
-        self.assertEqual(plan.operations, 1)
+        self.assertEqual(plan.operations, 4)
+        self.assertEqual(plan.separating_operations, 0)
+        self.assertEqual(plan.trim_operations, 4)
         self.assertEqual(plan.shared_edges, 0)
         self.assertAlmostEqual(plan.shared_length, 0.0, places=6)
+
+    def test_corner_polygon_with_two_border_sides_needs_two_cuts(self):
+        plan = compute_cut_plan([(1, rect(0, 0, 50, 50))], 100, 100)
+        self.assertEqual(plan.operations, 2)
+        self.assertEqual(plan.separating_operations, 0)
+        self.assertEqual(plan.trim_operations, 2)
+
+    def test_two_squares_border_left_top_right_need_two_cuts(self):
+        plan = compute_cut_plan(
+            [(1, rect(0, 0, 50, 50)), (2, rect(50, 0, 100, 50))], 100, 60
+        )
+        self.assertEqual(plan.operations, 2)
+        self.assertEqual(plan.separating_operations, 1)
+        self.assertEqual(plan.trim_operations, 1)
+        self.assertEqual(plan.shared_edges, 1)
 
     def test_two_side_by_side_share_one_vertical_line(self):
         plan = compute_cut_plan(
@@ -60,7 +77,7 @@ class CutModelTests(unittest.TestCase):
         self.assertEqual(plan.shared_edges, 0)
         self.assertAlmostEqual(plan.shared_length, 0.0, places=6)
 
-    def test_interlocked_triangles_one_operation(self):
+    def test_interlocked_triangles_need_two_cuts(self):
         plan = compute_cut_plan(
             [
                 (1, [(0, 0), (60, 0), (0, 40)]),
@@ -69,7 +86,9 @@ class CutModelTests(unittest.TestCase):
             100,
             40,
         )
-        self.assertEqual(plan.operations, 1)
+        self.assertEqual(plan.operations, 2)
+        self.assertEqual(plan.separating_operations, 1)
+        self.assertEqual(plan.trim_operations, 1)
         self.assertEqual(plan.shared_edges, 1)
         self.assertAlmostEqual(plan.shared_length, 72.111, places=2)
 
@@ -81,17 +100,12 @@ class CutModelTests(unittest.TestCase):
             CutAssumptions(start_at_border=True),
         )
         self.assertEqual(plan.plunges, 1)
-        self.assertEqual(plan.operations, 2)
+        self.assertEqual(plan.operations, 4)
 
-    def test_count_shared_once_false_adds_operation(self):
-        plan = compute_cut_plan(
-            [(1, rect(0, 0, 40, 20)), (2, rect(40, 0, 80, 20))],
-            100,
-            20,
-            CutAssumptions(count_shared_once=False),
-        )
-        self.assertEqual(plan.operations, 3)
-        self.assertAlmostEqual(plan.shared_length, 20.0, places=6)
+    def test_border_rectangle_with_three_border_sides_needs_one_cut(self):
+        plan = compute_cut_plan([(1, rect(0, 0, 100, 40))], 100, 100)
+        self.assertEqual(plan.operations, 1)
+        self.assertEqual(plan.trim_operations, 1)
 
     def test_kerf_non_zero_raises(self):
         with self.assertRaises(CutModelError):

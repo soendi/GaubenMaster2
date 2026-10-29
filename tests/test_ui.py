@@ -49,6 +49,52 @@ class UiSmokeTests(unittest.TestCase):
         finally:
             window.destroy()
 
+    def test_plateplanning_draws_cut_lines(self):
+        from gaubenmaster.nesting import Layout, Placement
+        from gaubenmaster.plateplanning import CUT_LINE, PlatePlanningWindow
+
+        window = PlatePlanningWindow(self.root, None, [], "ha", (3.0, 3.5, 4.5))
+        try:
+            items = []
+            for index in range(2):
+                y = index * 20.0
+                polygon = (
+                    (0.0, y),
+                    (40.0, y),
+                    (40.0, y + 20.0),
+                    (0.0, y + 20.0),
+                )
+                items.append(
+                    Placement(
+                        part_index=index + 1,
+                        polygon=polygon,
+                        angle=0.0,
+                        area=800.0,
+                        bounds=(0.0, y, 40.0, y + 20.0),
+                    )
+                )
+            layout = Layout(items=tuple(items), width=100.0, length=40.0)
+            window._results = [layout]
+            window._selected_index = 0
+            window._live_layout = layout
+            window._live_best = layout
+            with (
+                mock.patch.object(window.canvas, "winfo_width", return_value=900),
+                mock.patch.object(window.canvas, "winfo_height", return_value=700),
+            ):
+                window._draw_strip()
+            cut_lines = [
+                item
+                for item in window.canvas.find_all()
+                if window.canvas.type(item) == "line"
+                and window.canvas.itemcget(item, "fill") == CUT_LINE
+            ]
+            self.assertGreaterEqual(len(cut_lines), 1)
+            for item in cut_lines:
+                self.assertNotEqual(window.canvas.itemcget(item, "dash"), "")
+        finally:
+            window.destroy()
+
     def test_height_split_updates_view_and_sidebar(self):
         self.app._calculate()
         self.app.height_var.set(True)
