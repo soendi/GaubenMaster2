@@ -1243,6 +1243,70 @@ class PlatePlanningWindow(tk.Toplevel):
             angle_deg = item.angle % 360.0
             label = f"Teil {item.part_index}\n{format_number(angle_deg)}°"
             c.drawString(pdf_x0 + 2, pdf_y1 + 4, label)
+        # Parts (gezeichnet mit Rotation wie im Plattenplaner)
+        c.setFillColorRGB(0, 0.33, 0.66)
+        for i, item in enumerate(layout.items):
+            # Part-Position in PDF-Points umrechnen
+            pdf_x0_cm = item.bounds[0]
+            pdf_y0_cm = layout.length - item.bounds[3]  # Y-axis ist im PDF unten-links
+            pdf_x1_cm = item.bounds[2]
+            pdf_y1_cm = layout.length - item.bounds[1]
+            
+            # Part-Farbe je nach Index
+            part_color = (0.133, 0.337, 0.663) if item.part_index <= 10 else (0.6, 0.4, 0.1)
+            
+            # Part-Polygon in PDF-Koordinaten
+            polygon_vertices = item.polygon
+            
+            # Part an Position und Drehung anpassen
+            cx = (pdf_x0_cm + pdf_x1_cm) / 2  # Part-Zentrum in cm
+            cy = (pdf_y0_cm + pdf_y1_cm) / 2  # Part-Zentrum in cm
+            
+            # Canvas-Zustand speichern
+            c.saveState()
+            
+            # Part-Zentrum versetzen
+            c.translate(MARGIN_PT + cx * 28.3465 * SCALE, MARGIN_PT + cy * 28.3465 * SCALE)
+            
+            # Part drehen (negativer Winkel, da Reportlab andersrum dreht)
+            c.rotate(-item.angle)
+            
+            # Part zeichnen
+            c.setFillColorRGB(*part_color)
+            
+            # Part-Polygon koordinaten anpassen: von cm nach Points, Mittelpunkt als Ursprung
+            transformed_vertices = []
+            for vertex in polygon_vertices:
+                vx, vy = vertex
+                # Verschiebe zum Ursprung, drehe, dann wieder zum Zentrum zurück
+                vx_rel = vx - cx
+                vy_rel = vy - cy
+                # Punkt drehen (negativer Winkel)
+                angle_rad = -math.radians(item.angle)
+                cos_a = math.cos(angle_rad)
+                sin_a = math.sin(angle_rad)
+                vx_rot = vx_rel * cos_a - vy_rel * sin_a
+                vy_rot = vx_rel * sin_a + vy_rel * cos_a
+                # Zum PDF-Zentrum verschieben und umrechnen
+                vx_pdf = MARGIN_PT + (cx + vx_rot) * 28.3465 * SCALE
+                vy_pdf = MARGIN_PT + (cy - vy_rot) * 28.3465 * SCALE  # Y-axis flip
+                transformed_vertices.extend([vx_pdf, vy_pdf])
+            
+            c.setFillColorRGB(*part_color)
+            c.setLineWidth(0.5)
+            c.drawPolygon(*transformed_vertices, fill=1, stroke=0)
+            
+            # Canvas-Zustand wiederherstellen
+            c.restoreState()
+            
+            # Teilbeschriftung
+            c.setFillColorRGB(0.12, 0.14, 0.19)
+            c.setFont("Helvetica", 6)
+            c.drawString(
+                MARGIN_PT + (item.bounds[0] + item.bounds[2]) / 2 * 28.3465 * SCALE,
+                MARGIN_PT + (layout.length - item.bounds[1] - 5) * 28.3465 * SCALE,
+                f"Teil {item.part_index}"
+            )
         # Plattenumrandung (100 cm breit × layout.length cm lang)
         c.setStrokeColorRGB(0.12, 0.14, 0.19)  # TEXT color
         c.setLineWidth(1)
