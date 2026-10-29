@@ -34,6 +34,12 @@ from gaubenmaster.nesting import (
     shapes_from_parts,
     validate_layout,
 )
+import io
+import io
+
+CANVAS_LEFT = 20
+CANVAS_TOP = 20
+
 from gaubenmaster.plot import BACKGROUND, TAB20, blend
 
 try:
@@ -1167,6 +1173,100 @@ class PlatePlanningWindow(tk.Toplevel):
             font=("Segoe UI", 9),
             angle=90,
         )
+    def export_pdf(self, filename: str = "platten_export.pdf") -> None:
+        """Exportiert die Layout-Ansicht als PDF auf A4-Seite mit 3 cm Rand.
+
+        Die Platte (100 cm breit) wird skaliert, sodass sie auf ein A4-Blatt
+        passt mit mindestens 3 cm Rand links/rechts und oben/unten.
+        Die Anordnung wird zentriert dargestellt mit Teilpolygonen,
+        Eckbeschriftungen und den roten Schnittlinien.
+
+        Benötigtes Paket: reportlab (pip install reportlab)
+        """
+        try:
+            from reportlab.pdfgen import canvas as pdfcanvas
+        except ImportError:
+            from tkinter import messagebox
+            messagebox.showerror(
+                "Reportlab fehlt",
+                "Die PDF-Export-Funktion benötigt das Paket reportlab.\n"
+                "Installieren Sie es mit: pip install reportlab"
+            )
+            return
+
+        # Layout holen
+        layout = self._result if self._result else self._live_best
+        if layout is None:
+            from tkinter import messagebox
+            messagebox.showwarning("Keine Anordnung", "Es gibt keine gespeicherte Anordnung zum Export.")
+            return
+
+        # PDF-Seitenformate in Points (1 Point = 1/72 Zoll)
+        A4_W_PT = 595.28  # 210 mm
+        A4_H_PT = 841.89  # 297 mm
+        MARGIN_CM = 3.0
+        MARGIN_PT = MARGIN_CM * 28.3465
+        USABLE_W_PT = A4_W_PT - 2 * MARGIN_PT
+        USABLE_H_PT = A4_H_PT - 2 * MARGIN_PT
+
+        # Scale: Plate is 100 cm wide
+        PLATE_W_CM = STRIP_WIDTH_CM
+        PLATE_W_PT = PLATE_W_CM * 28.3465
+        SCALE = USABLE_W_PT / PLATE_W_PT
+
+        # Font setup - Helvetica ist Standard in reportlab
+        c = pdfcanvas.Canvas(filename if filename else "platten_export.pdf",
+                          pagesize=(A4_W_PT, A4_H_PT))
+        c.setFont("Helvetica", 10)
+
+        # Header
+        c.setFillColorRGB(0.12, 0.14, 0.19)
+        c.drawString(MARGIN_PT, A4_H_PT - MARGIN_PT - 12, "GAUBENMASTER – Plattenplanung")
+
+        # Material info
+        c.setFont("Helvetica", 9)
+        c.drawString(MARGIN_PT, A4_H_PT - MARGIN_PT - 28, f"Material: {STRIP_WIDTH_CM} cm × {format_number(layout.length)} cm")
+
+        # Parts
+        c.setFillColorRGB(0, 0.33, 0.66)
+        for i, item in enumerate(layout.items):
+            x0_cm, y0_cm, x1_cm, y1_cm = item.bounds
+            pdf_x0 = MARGIN_PT + (x0_cm * 28.3465) * SCALE
+            pdf_y0 = MARGIN_PT + ((layout.length - y1_cm) * 28.3465) * SCALE
+            pdf_x1 = MARGIN_PT + (x1_cm * 28.3465) * SCALE
+            pdf_y1 = MARGIN_PT + ((layout.length - y0_cm) * 28.3465) * SCALE
+            part_color = (0.133, 0.337, 0.663) if item.part_index <= 10 else (0.6, 0.4, 0.1)
+            c.setFillColorRGB(*part_color)
+            c.rect(pdf_x0, pdf_y0, pdf_x1 - pdf_x0, pdf_y1 - pdf_y0, fill=1, stroke=0)
+            c.setFillColorRGB(0.12, 0.14, 0.19)
+            c.setFont("Helvetica", 7)
+            angle_deg = item.angle % 360.0
+            label = f"Teil {item.part_index}\n{format_number(angle_deg)}°"
+            c.drawString(pdf_x0 + 2, pdf_y1 + 4, label)
+
+        # Cut lines (rot gepunktet)
+        c.setStrokeColorRGB(0.855, 0.188, 0.188)  # #d93025
+        c.setDash(6, 4)
+        plan = layout.cut_plan
+        for segment in plan.segments:
+            x0, y0 = segment.start
+            x1, y1 = segment.end
+            px0 = MARGIN_PT + (x0 * 28.3465) * SCALE
+            py0 = MARGIN_PT + ((layout.length - y0) * 28.3465) * SCALE
+            px1 = MARGIN_PT + (x1 * 28.3465) * SCALE
+            py1 = MARGIN_PT + ((layout.length - y1) * 28.3465) * SCALE
+            c.line(px0, py0, px1, py1)
+            c.setDash()
+
+        # Footer info
+        c.setFont("Helvetica", 8)
+        c.drawString(MARGIN_PT, MARGIN_PT / 2, f"{len(layout.items)} Teile · Skaliert 1:{int(1/SCALE)} · Schnittlinien rot gepunktet")
+
+        c.showPage()
+        c.save()
+
+        from tkinter import messagebox
+        messagebox.showinfo("PDF exportiert", f"PDF wurde gespeichert: {filename}")
 
     # ------------------------------------------------------------------
     # Synchroner Pfad (Tests, Skripte, Enter-Taste)
