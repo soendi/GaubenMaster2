@@ -1243,6 +1243,10 @@ class PlatePlanningWindow(tk.Toplevel):
             angle_deg = item.angle % 360.0
             label = f"Teil {item.part_index}\n{format_number(angle_deg)}°"
             c.drawString(pdf_x0 + 2, pdf_y1 + 4, label)
+        # Plattenumrandung (100 cm breit × layout.length cm lang)
+        c.setStrokeColorRGB(0.12, 0.14, 0.19)  # TEXT color
+        c.setLineWidth(1)
+        c.rect(MARGIN_PT, MARGIN_PT, USABLE_W_PT, USABLE_H_PT, fill=0, stroke=1)
 
         # Cut lines (rot gepunktet)
         c.setStrokeColorRGB(0.855, 0.188, 0.188)  # #d93025
