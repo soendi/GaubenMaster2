@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from gaubenmaster.geometry import calculate_triangle  # noqa: E402
 from gaubenmaster.nesting import (  # noqa: E402
+    TARGET_LAYOUTS,
     NestingError,
     NestingOptions,
     Shape,
@@ -192,7 +193,7 @@ class NestingTests(unittest.TestCase):
             rect_shapes([(30.0, 20.0)] * 6), fast_options(max_candidates=30)
         )
         self.assertGreaterEqual(len(results), 2)
-        self.assertLessEqual(len(results), 3)
+        self.assertLessEqual(len(results), TARGET_LAYOUTS)
         signatures = {layout_signature(layout) for layout in results}
         self.assertEqual(len(signatures), len(results))
 

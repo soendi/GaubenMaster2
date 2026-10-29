@@ -48,11 +48,12 @@ GEOMETRY_TOLERANCE = 1e-7
 ANGLE_TOLERANCE = 1e-6
 MIN_ANGLE_STEP_DEG = 0.5
 
-COARSE_ANGLE_STEP_DEG = 10.0
+COARSE_ANGLE_STEP_DEG = 5.0
 FINE_ANGLE_STEP_DEG = 1.0
 
 MAX_LAYOUTS_KEPT = 24
 MAX_PARETO_KEPT = 8
+TARGET_LAYOUTS = 5
 PROGRESS_EMIT_INTERVAL_S = 0.02
 PROGRESS_ATTEMPT_INTERVAL = 41
 
@@ -517,7 +518,12 @@ def score_layout(
     if mode == SCORING_WASTE:
         return waste_excess
     if mode == SCORING_CUTS:
-        return cut_excess
+        # Durchgehende gemeinsame Linien ueber mehrere Teile sind der
+        # eigentliche Gewinn beim Schnittmodus: eine lange gerade Linie
+        # ersetzt viele kurze Einzelanschnitte. Deshalb wird die
+        # Schnittkennzahl um den Anteil der laengsten durchgehenden Linie
+        # verbessert.
+        return cut_excess / (1.0 + layout.continuous_cut_ratio)
     total_weight = waste_weight + cut_weight
     if total_weight <= 1e-12:
         total_weight = 1.0
@@ -538,7 +544,15 @@ def ranking_key(
     if mode == SCORING_WASTE:
         return (round(layout.length, 6), operations, round(score, 9))
     if mode == SCORING_CUTS:
-        return (operations, round(layout.length, 6), round(score, 9))
+        operations = layout.cut_operations
+        longest, total, _parts = layout.continuous_cut_metrics
+        return (
+            operations,
+            -round(longest, 6),
+            -round(total, 6),
+            round(layout.length, 6),
+            round(score, 9),
+        )
     return (round(score, 9), round(layout.length, 6), operations)
 
 
@@ -607,6 +621,9 @@ class Layout:
         default_factory=CutAssumptions, compare=False, repr=False
     )
     _cut_plan: CutPlan | None = field(
+        default=None, compare=False, repr=False, hash=False
+    )
+    _continuity: tuple[float, float, int] | None = field(
         default=None, compare=False, repr=False, hash=False
     )
 
@@ -679,6 +696,47 @@ class Layout:
     @property
     def cut_operations(self) -> int:
         return self.cut_plan.operations
+
+    @property
+    def continuous_cut_metrics(self) -> tuple[float, float, int]:
+        """Durchgehende gemeinsame Schnittlinien der Anordnung.
+
+        Liefert ``(laengste Linie, Summe aller Linien, groesste Teilezahl)``.
+        Als "durchgehend" zaehlen gerade Linien, auf denen die Kanten von
+        mindestens zwei Teilen ohne Versatz aufeinander folgen - egal ob die
+        Teile sich die Kante teilen (Trennschnitt) oder ob die Linie die
+        Teile gemeinsam vom Verschnitt abtrennt. Je laenger eine solche Linie
+        ueber mehrere Teile hinweg laeuft, desto weniger Anschnitte braucht
+        die Saege und desto besser ist die Anordnung im Modus
+        "Schnittanzahl priorisieren".
+        """
+        cached = self._continuity
+        if cached is not None:
+            return cached
+        longest = 0.0
+        total = 0.0
+        max_parts = 0
+        try:
+            segments = self.cut_plan.segments
+        except (CutModelError, ZeroDivisionError):
+            segments = ()
+        for segment in segments:
+            if len(segment.part_indices) < 2:
+                continue
+            total += segment.length
+            if segment.length > longest:
+                longest = segment.length
+                max_parts = len(segment.part_indices)
+        cached = (longest, total, max_parts)
+        object.__setattr__(self, "_continuity", cached)
+        return cached
+
+    @property
+    def continuous_cut_ratio(self) -> float:
+        """Anteil der Materiallaenge, den die laengste Linie abdeckt (0..1)."""
+        if self.length <= 1e-9:
+            return 0.0
+        return min(1.0, self.continuous_cut_metrics[0] / self.length)
 
     @property
     def min_length(self) -> float:
@@ -808,8 +866,8 @@ class NestingResult:
 
     @property
     def complete_shortfall(self) -> bool:
-        """Weniger als drei unterschiedliche gueltige Loesungen gefunden."""
-        return len(self.layouts) < 3
+        """Weniger als :data:`TARGET_LAYOUTS` unterschiedliche Loesungen."""
+        return len(self.layouts) < TARGET_LAYOUTS
 
     def phase_count(self, phase: str) -> int:
         for name, count in self.phase_counts:
@@ -823,7 +881,7 @@ class NestingOptions:
     """Einstellungen der Optimierung."""
 
     width: float = STRIP_WIDTH_CM
-    time_budget_s: float = 5.0
+    time_budget_s: float = 60.0
     max_candidates: int = 400
     coarse_angle_step_deg: float = COARSE_ANGLE_STEP_DEG
     fine_angle_step_deg: float = FINE_ANGLE_STEP_DEG
@@ -1042,7 +1100,7 @@ class _Search:
         distinct = {
             layout.geometry_signature() for layout in completed
         }
-        if len(distinct) < 3:
+        if len(distinct) < TARGET_LAYOUTS:
             return False
         best = min(completed, key=self._layout_key)
         return (
@@ -1233,6 +1291,10 @@ class _Search:
         score_mode: str = PLACEMENT_COMPACT,
     ) -> _Candidate | None:
         best: _Candidate | None = None
+        cut_focus = self.options.scoring == SCORING_CUTS
+        placed_edges = (
+            self._placed_edge_index(placed) if cut_focus else ()
+        )
         for angle in angles:
             variant = self._variant(shape, angle)
             if variant.width > self.width + GEOMETRY_TOLERANCE:
@@ -1286,6 +1348,15 @@ class _Search:
                     score = (dy, dx, new_length, angle)
                 else:
                     score = (new_length, dy, dx, angle)
+                if cut_focus:
+                    # Gleich lange Kandidaten werden nach der laengsten
+                    # gemeinsamen, durchgehenden Kante sortiert. Damit reiht
+                    # die Heuristik Teile bevorzugt so aneinander, dass eine
+                    # gerade Schnittlinie ueber viele Teile weiterlaeuft.
+                    contact = self._collinear_contact_length(
+                        polygon, placed_edges
+                    )
+                    score = (score[0], -round(contact, 6)) + score[1:]
                 if best is None or score < best.score:
                     best = _Candidate(variant=variant, dx=dx, dy=dy, score=score)
                     if self._should_emit():
@@ -1307,11 +1378,79 @@ class _Search:
                                 y=dy,
                             )
                         )
-                if score_mode in (PLACEMENT_COMPACT, PLACEMENT_ROW):
+                if (
+                    score_mode in (PLACEMENT_COMPACT, PLACEMENT_ROW)
+                    and not cut_focus
+                ):
                     # Positionen sind nach (y, x) sortiert: die erste gueltige
                     # Position ist fuer diesen Winkel bereits die beste.
                     break
         return best
+
+    @staticmethod
+    def _edge_line(
+        start: Point, end: Point
+    ) -> tuple[tuple[float, float, float] | None, float, float]:
+        """Traegerlinie einer Kante als (Schluessel, ux, uy)."""
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        distance = math.hypot(dx, dy)
+        if distance <= 1e-12:
+            return None, 0.0, 0.0
+        ux, uy = dx / distance, dy / distance
+        if ux < -1e-9 or (abs(ux) <= 1e-9 and uy < 0.0):
+            ux, uy = -ux, -uy
+        offset = -uy * start[0] + ux * start[1]
+        return (round(ux, 6), round(uy, 6), round(offset, 4)), ux, uy
+
+    def _placed_edge_index(
+        self, placed: Sequence[_Placed]
+    ) -> dict[tuple[float, float, float], list[tuple[float, float]]]:
+        """Bereits platzierte Kanten, gruppiert nach ihrer Traegerlinie."""
+        result: dict[tuple[float, float, float], list[tuple[float, float]]] = {}
+        for item in placed:
+            polygon = item.polygon
+            count = len(polygon)
+            for index in range(count):
+                start = polygon[index]
+                end = polygon[(index + 1) % count]
+                key, ux, uy = self._edge_line(start, end)
+                if key is None:
+                    continue
+                first = ux * start[0] + uy * start[1]
+                second = ux * end[0] + uy * end[1]
+                low, high = sorted((first, second))
+                result.setdefault(key, []).append((low, high))
+        return result
+
+    @staticmethod
+    def _collinear_contact_length(
+        polygon: Polygon,
+        placed_edges: dict[
+            tuple[float, float, float], Sequence[tuple[float, float]]
+        ],
+    ) -> float:
+        """Laenge der Kanten, die eine bestehende gerade Linie fortsetzen."""
+        if not placed_edges:
+            return 0.0
+        contact = 0.0
+        count = len(polygon)
+        for index in range(count):
+            start = polygon[index]
+            end = polygon[(index + 1) % count]
+            key, ux, uy = _Search._edge_line(start, end)
+            if key is None:
+                continue
+            first = ux * start[0] + uy * start[1]
+            second = ux * end[0] + uy * end[1]
+            low, high = sorted((first, second))
+            length = high - low
+            for other_low, other_high in placed_edges.get(key, ()):
+                if other_high < low - 1e-3 or other_low > high + 1e-3:
+                    continue
+                contact += length
+                break
+        return contact
 
     def _place_single(
         self,
@@ -2361,6 +2500,141 @@ class _Search:
                 candidate_groups,
                 f"Schnittoptimiert ({mode}) / Phase {self._phase}",
             )
+        if self.options.scoring == SCORING_CUTS:
+            # Zusaetzlich bewusst gestapelte Spalten/Zeilen erzeugen: gleiche
+            # Breiten stehen uebereinander, sodass ihre Randkanten eine
+            # durchgehende gerade Linie ueber viele Teile bilden.
+            for prefer_width in (True, False):
+                if self._time_limit_reached(deadline):
+                    return
+                stacked = self._stacked_layout(angles_for, prefer_width)
+                if stacked is None:
+                    continue
+                stacked_items, stacked_length, stacked_groups = stacked
+                self._register(
+                    stacked_items,
+                    stacked_length,
+                    stacked_groups,
+                    (
+                        "Durchgehende Spalten"
+                        if prefer_width
+                        else "Durchgehende Zeilen"
+                    )
+                    + f" / Phase {self._phase}",
+                )
+
+    def _stacked_layout(
+        self,
+        angles_for: Callable[[Shape], Sequence[float]],
+        prefer_width: bool = True,
+    ) -> tuple[list[Placement], float, tuple[tuple[int, ...], ...]] | None:
+        """Teile gleicher Breite (oder Hoehe) zu durchgehenden Reihen stapeln.
+
+        Die Orientierung wird je Teil so gewaehlt, dass die Querausdehnung
+        minimal ist. Anschliessend werden Teile mit gleicher Querausdehnung in
+        derselben Spalte (bzw. Zeile) aneinandergereiht. Dadurch laufen die
+        seitlichen Kanten ohne Versatz ueber alle Teile der Spalte und
+        ergeben eine einzige durchgehende Schnittlinie.
+        """
+        chosen: list[tuple[float, float, int, Shape, _Variant, float]] = []
+        for index, shape in enumerate(self.shapes):
+            best: tuple[tuple[float, ...], _Variant, float] | None = None
+            allowed = tuple(angles_for(shape))
+            for angle in allowed:
+                variant = self._variant(shape, angle)
+                if variant.width > self.width + GEOMETRY_TOLERANCE:
+                    continue
+                cross = variant.width if prefer_width else variant.height
+                along = variant.height if prefer_width else variant.width
+                key = (
+                    round(cross, 4),
+                    round(along, 4),
+                    0 if _is_quarter_angle(angle) else 1,
+                    angle,
+                )
+                if best is None or key < best[0]:
+                    best = (key, variant, angle)
+            if best is None:
+                return None
+            key, variant, angle = best
+            chosen.append((key[0], key[1], index, shape, variant, angle))
+
+        chosen.sort(key=lambda entry: (entry[0], entry[1], entry[2]))
+
+        columns: list[dict[str, float]] = []
+        items: list[Placement] = []
+        length = 0.0
+        for cross, _along, _index, shape, _variant, angle in chosen:
+            target = None
+            fallback = None
+            for column in columns:
+                if abs(column["cross"] - cross) <= 1e-6:
+                    target = column
+                    break
+                if cross <= column["cross"] + 1e-6 and fallback is None:
+                    fallback = column
+            if target is None:
+                target = fallback
+            if target is None:
+                start = max(
+                    (column["start"] + column["cross"] for column in columns),
+                    default=0.0,
+                )
+                if prefer_width and start + cross > self.width + GEOMETRY_TOLERANCE:
+                    return None
+                target = {"start": start, "cross": cross, "cursor": 0.0, "count": 0.0}
+                columns.append(target)
+
+            allowed = set(angles_for(shape))
+            use_angle = angle
+            if int(target["count"]) % 2 == 1 and (angle + 180.0) % 360.0 in allowed:
+                # Jedes zweite Teil um 180 Grad drehen: die Kanten bleiben
+                # deckungsgleich, die Kontur wird aber gespiegelt.
+                use_angle = (angle + 180.0) % 360.0
+            variant = self._variant(shape, use_angle)
+            if (
+                not prefer_width
+                and target["cursor"] + variant.width
+                > self.width + GEOMETRY_TOLERANCE
+            ):
+                # In der aktuellen Zeile ist kein Platz mehr: neue Zeile
+                # beginnen, damit keine Teile aus dem Material ragen.
+                start = max(
+                    (column["start"] + column["cross"] for column in columns),
+                    default=0.0,
+                )
+                target = {"start": start, "cross": cross, "cursor": 0.0, "count": 0.0}
+                columns.append(target)
+            x = target["start"] if prefer_width else target["cursor"]
+            y = target["cursor"] if prefer_width else target["start"]
+            polygon = translate_points(variant.outline, x, y)
+            bounds = (x, y, x + variant.width, y + variant.height)
+            placement = Placement(
+                part_index=shape.part_index,
+                polygon=polygon,
+                angle=use_angle,
+                area=shape.area,
+                bounds=bounds,
+            )
+            items.append(placement)
+            step = variant.height if prefer_width else variant.width
+            target["cursor"] = target["cursor"] + step
+            target["count"] = target["count"] + 1
+            length = max(length, bounds[3])
+
+        if len(items) != len(self.shapes):
+            return None
+        if not self._stacked_valid(items):
+            return None
+        return items, length, ()
+
+    @staticmethod
+    def _stacked_valid(items: Sequence[Placement]) -> bool:
+        for index, first in enumerate(items):
+            for second in items[index + 1 :]:
+                if _bbox_overlap(first.bounds, second.bounds):
+                    return False
+        return True
 
     def _to_placed(self, item: Placement) -> _Placed:
         return _Placed(
@@ -2389,14 +2663,46 @@ class _Search:
         ordered = sorted(completed, key=self._layout_key)
         selected: list[Layout] = []
         seen: set[tuple] = set()
+        # Im Schnittmodus bleibt ein Platz fuer die Anordnung mit der laengsten
+        # durchgehenden Schnittlinie reserviert. So ist die "durchgehende
+        # Spalten/Zeilen"-Alternative immer unter den angebotenen Loesungen.
+        reserve = (
+            1
+            if self.options.scoring == SCORING_CUTS and len(ordered) > 1
+            else 0
+        )
         for layout in ordered:
             key = layout.signature()
             if key in seen:
                 continue
             seen.add(key)
             selected.append(layout)
-            if len(selected) >= 3:
+            if len(selected) >= TARGET_LAYOUTS - reserve:
                 break
+        if reserve:
+            continuity_best = max(
+                completed,
+                key=lambda layout: (
+                    layout.continuous_cut_metrics[0],
+                    layout.continuous_cut_metrics[1],
+                    -layout.cut_operations,
+                    -layout.length,
+                ),
+                default=None,
+            )
+            if continuity_best is not None:
+                key = continuity_best.signature()
+                if key not in seen:
+                    seen.add(key)
+                    selected.append(continuity_best)
+        for layout in ordered:
+            if len(selected) >= TARGET_LAYOUTS:
+                break
+            key = layout.signature()
+            if key in seen:
+                continue
+            seen.add(key)
+            selected.append(layout)
         front = pareto_front(completed)
         min_length = min(
             (layout.min_length for layout in completed),
@@ -2511,7 +2817,7 @@ def nest_shapes(
     progress_cb: Callable[[NestingProgress], None] | None = None,
     cancel_event: "object | None" = None,
 ) -> list[Layout]:
-    """Berechnet bis zu drei unterschiedliche gueltige Anordnungen."""
+    """Berechnet bis zu fuenf unterschiedliche gueltige Anordnungen."""
     return list(
         nest_shapes_detailed(
             shapes, options, progress_cb, cancel_event

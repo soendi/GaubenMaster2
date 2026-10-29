@@ -537,18 +537,18 @@ class App:
             height_frame, text="Einzelteil-Zuschnitt", font=("Segoe UI", 9, "bold")
         ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 2))
         self.extra_vars: dict[str, tk.StringVar] = {}
-        for index, (key, label) in enumerate(
+        for index, (key, label, default) in enumerate(
             (
-                ("length_extra", "Länge + (cm)"),
-                ("fold_front", "Falz vorne (cm)"),
-                ("fold_back", "Falz hinten (cm)"),
+                ("length_extra", "Länge + (cm)", "3,0"),
+                ("fold_front", "Falz vorne (cm)", "3,5"),
+                ("fold_back", "Falz hinten (cm)", "4,5"),
             ),
             start=5,
         ):
             ttk.Label(height_frame, text=label).grid(
                 row=index, column=0, sticky="w", pady=1
             )
-            variable = tk.StringVar(value="0,0")
+            variable = tk.StringVar(value=default)
             self.extra_vars[key] = variable
             ttk.Spinbox(
                 height_frame,

@@ -14,8 +14,11 @@ from gaubenmaster.nesting import (
     SCORING_BALANCED,
     SCORING_CUTS,
     SCORING_WASTE,
+    TARGET_LAYOUTS,
+    Layout,
     NestingOptions,
     NestingResult,
+    Placement,
     Shape,
     nest_shapes,
     nest_shapes_detailed,
@@ -218,6 +221,60 @@ class ExtendedNestingTests(unittest.TestCase):
         result = nest_shapes_detailed([], NestingOptions())
         self.assertEqual(result.layouts, ())
         self.assertEqual(result.pareto, ())
+
+    def test_target_layouts_is_five(self):
+        self.assertEqual(TARGET_LAYOUTS, 5)
+        shapes = [rect_shape(i, 30, 20) for i in range(1, 7)]
+        result = nest_shapes_detailed(
+            shapes, NestingOptions(time_budget_s=2.0, max_candidates=300)
+        )
+        self.assertLessEqual(len(result.layouts), TARGET_LAYOUTS)
+
+    def test_continuous_cut_line_across_stacked_parts(self):
+        items = []
+        for index in range(4):
+            y = index * 20.0
+            polygon = ((0.0, y), (40.0, y), (40.0, y + 20.0), (0.0, y + 20.0))
+            items.append(
+                Placement(
+                    part_index=index + 1,
+                    polygon=polygon,
+                    angle=0.0,
+                    area=800.0,
+                    bounds=(0.0, y, 40.0, y + 20.0),
+                )
+            )
+        layout = Layout(items=tuple(items), width=100.0, length=80.0)
+        longest, total, parts = layout.continuous_cut_metrics
+        self.assertAlmostEqual(longest, 80.0)
+        self.assertGreaterEqual(total, 80.0)
+        self.assertEqual(parts, 4)
+        self.assertAlmostEqual(layout.continuous_cut_ratio, 1.0)
+        self.assertEqual(validate_layout(layout), [])
+
+    def test_cuts_mode_offers_continuous_column_solution(self):
+        shapes = [rect_shape(i, 20, 40) for i in range(1, 9)]
+        result = nest_shapes_detailed(
+            shapes,
+            NestingOptions(
+                time_budget_s=3.0,
+                max_candidates=300,
+                coarse_angle_step_deg=5.0,
+                scoring=SCORING_CUTS,
+                random_seed=3,
+            ),
+        )
+        self.assertTrue(result.layouts)
+        self.assertLessEqual(len(result.layouts), TARGET_LAYOUTS)
+        for layout in result.layouts:
+            self.assertEqual(validate_layout(layout), [])
+        self.assertTrue(
+            any(
+                layout.continuous_cut_ratio >= 0.95
+                for layout in result.layouts
+            ),
+            "Keine Anordnung mit durchgehender Schnittlinie angeboten",
+        )
 
 
 @unittest.skipUnless(is_spyrrow_available(), "spyrrow nicht installiert")

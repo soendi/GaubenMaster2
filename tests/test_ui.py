@@ -32,6 +32,23 @@ class UiSmokeTests(unittest.TestCase):
         self.assertAlmostEqual(self.app.triangle.area, 6.0)
         self.assertIn("α=36,87°", self.app.status.cget("text"))
 
+    def test_extra_dimension_defaults(self):
+        self.assertEqual(self.app.extra_vars["length_extra"].get(), "3,0")
+        self.assertEqual(self.app.extra_vars["fold_front"].get(), "3,5")
+        self.assertEqual(self.app.extra_vars["fold_back"].get(), "4,5")
+
+    def test_plateplanning_defaults(self):
+        from gaubenmaster.plateplanning import PlatePlanningWindow
+
+        window = PlatePlanningWindow(self.root, None, [], "ha", (3.0, 3.5, 4.5))
+        try:
+            self.root.update_idletasks()
+            self.assertEqual(window.budget_var.get(), "60")
+            self.assertEqual(window.angle_step_var.get(), "5")
+            self.assertEqual(window.solver_var.get(), "Eigen (Heuristik)")
+        finally:
+            window.destroy()
+
     def test_height_split_updates_view_and_sidebar(self):
         self.app._calculate()
         self.app.height_var.set(True)

@@ -1,4 +1,4 @@
-"""Plattenplanung mit Polygon-Nesting, Live-Ansicht und Top-3-Loesungen.
+"""Plattenplanung mit Polygon-Nesting, Live-Ansicht und Top-5-Loesungen.
 
 Die eigentliche Optimierung liegt in :mod:`gaubenmaster.nesting`. Dieses Modul
 stellt das Fenster bereit, startet die Suche in einem Worker-Thread und zeigt
@@ -23,6 +23,7 @@ from gaubenmaster.nesting import (
     SCORING_MODES,
     SCORING_WASTE,
     STRIP_WIDTH_CM,
+    TARGET_LAYOUTS,
     Layout,
     NestingError,
     NestingOptions,
@@ -73,12 +74,10 @@ class PlatePlanningWindow(tk.Toplevel):
         self.extras = extras
 
         self.live_var = tk.BooleanVar(value=True)
-        self.budget_var = tk.StringVar(value="10")
-        self.angle_step_var = tk.StringVar(value="10")
+        self.budget_var = tk.StringVar(value="60")
+        self.angle_step_var = tk.StringVar(value="5")
         self.scoring_var = tk.StringVar(value=SCORING_LABELS[SCORING_BALANCED])
-        self.solver_var = tk.StringVar(
-            value="Sparrow (extern)" if is_spyrrow_available() else "Eigen (Heuristik)"
-        )
+        self.solver_var = tk.StringVar(value="Eigen (Heuristik)")
 
         self._results: list[Layout] = []
         self._pareto: list[Layout] = []
@@ -98,7 +97,7 @@ class PlatePlanningWindow(tk.Toplevel):
         self.update_interval_ms = LIVE_UPDATE_MS
 
         self.title("Plattenplanung")
-        self.geometry("1280x860")
+        self.geometry("1400x900")
         self.minsize(980, 640)
         self.configure(background=BACKGROUND)
         self.transient(master.winfo_toplevel())
@@ -249,7 +248,7 @@ class PlatePlanningWindow(tk.Toplevel):
 
     def _build_result_panel(self, outer: ttk.Frame) -> None:
         panel = ttk.LabelFrame(
-            outer, text="Lösungen (bis zu 3, nach Bewertung)", padding=8
+            outer, text="Lösungen (bis zu 5, nach Bewertung)", padding=8
         )
         panel.grid(row=2, column=1, sticky="nsew", padx=(10, 0))
         panel.rowconfigure(1, weight=1)
@@ -260,7 +259,7 @@ class PlatePlanningWindow(tk.Toplevel):
             panel,
             columns=columns,
             show="headings",
-            height=4,
+            height=5,
             selectmode="browse",
         )
         headings = {
@@ -696,7 +695,7 @@ class PlatePlanningWindow(tk.Toplevel):
         if shortfall:
             status_text = (
                 status_text
-                + " · weniger als 3 unterschiedliche Lösungen gefunden"
+                + f" · weniger als {TARGET_LAYOUTS} unterschiedliche Lösungen gefunden"
             )
         self.status.configure(text=status_text, foreground=VALID)
         checked = sum(1 for layout in self._results if validate_layout(layout))

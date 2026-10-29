@@ -73,7 +73,9 @@ Installation fehl, rollt Windows Installer die Änderungen zurück.
 **Extras → Plattenplanung...** oder die gleichnamige Schaltfläche im Bereich
 Höhen-Teilung legt die Einzelteile auf eine Coil mit fester Breite von 100 cm.
 Die Teile werden inklusive `Länge+`, `Fv` und `Fh` zugeschnitten und als
-Polygone mit ihren echten Konturen verschachtelt.
+Polygone mit ihren echten Konturen verschachtelt. Die Standardwerte der
+Zuschnittfelder sind `Länge+ = 3,0 cm`, `Fv = 3,5 cm` und `Fh = 4,5 cm`;
+das Fenster öffnet mit 1400 × 900 Pixeln.
 
 Die Optimierung verfolgt zwei Ziele gemeinsam: **Materialverschnitt
 minimieren** und **modellierte Schnittanzahl minimieren**. Vier
@@ -90,7 +92,7 @@ Linien werden einmal gezählt, Berührungen gelten nicht als gemeinsame
 Schnittlinie, Materialrandkanten werden nicht geschnitten, Schnittfugenbreite
 ist 0 cm. Die Annahmen sind konfigurierbar (Ansatz am Materialrand ja/nein).
 
-Mehrere Startreihenfolgen und lokale Verbesserungen liefern bis zu drei
+Mehrere Startreihenfolgen und lokale Verbesserungen liefern bis zu fünf
 unterschiedliche, vollständig geometrisch geprüfte Anordnungen mit Rang,
 Gesamtbewertung, Länge, Verschnittfläche/-anteil, modellierte Schnittanzahl,
 Schnittmodell-Annahmen, Winkeln, Positionen, Paar-/Gruppenbildungen, Anzahl
@@ -99,15 +101,29 @@ Pareto-Front über (Verschnitt, Schnitte) wird zusätzlich als
 Zielkonflikt-Tabelle angezeigt. Die Anzeige kennzeichnet die Lösung als
 heuristisch gefunden, nicht als nachgewiesenes Optimum.
 
+Im Modus **Schnittanzahl priorisieren** belohnt die Heuristik zusätzlich
+durchgehende gerade Schnittlinien: Gleiche Breiten werden bevorzugt in
+Spalten (bzw. Zeilen) gestapelt, die Teile abwechselnd um 180° gedreht, sodass
+ihre Kanten ohne Versatz über viele Teile weiterlaufen. Eine lange Linie zählt
+als ein Schnittweg, statt viele kurze Einzelanschnitte zu benötigen. Eine
+solche Anordnung mit der längsten durchgehenden Linie ist immer unter den
+angebotenen fünf Lösungen.
+
 Während der Berechnung zeigt die Live-Ansicht die Materialfläche, die aktuell
 getestete Platzierung, die beste bisherige Anordnung, Teilnummern, Winkel,
 Koordinaten, Suchstrategie, aktuelle Paar-/Gruppenbildungen, Schnittanzahl,
 Bewertung beider Ziele, Verschnitt und ob ein Kandidat gültig ist oder
 verworfen wurde. Die Checkbox **Live-Ansicht während der Berechnung anzeigen**
 ist standardmäßig aktiv und beeinflusst weder Suchstrategie noch Ergebnis.
-Zeitbudget (3–60 s) und Winkelschritt sind einstellbar; ein Abbruch oder
-Timeout liefert die beste bisherige gültige Lösung. Bei weniger als drei
-unterschiedlichen Lösungen wird dies gekennzeichnet.
+Das Zeitbudget steht standardmäßig auf 60 s (einstellbar 3–60 s), der
+Winkelschritt auf 5°. Ein Abbruch oder Timeout liefert die beste bisherige
+gültige Lösung. Bei weniger als fünf unterschiedlichen Lösungen wird dies
+gekennzeichnet.
+
+Als Solver ist standardmäßig die eigene Heuristik aktiv. Ist das optionale
+Paket `spyrrow` installiert, kann in der Combobox zusätzlich **Sparrow
+(extern)** gewählt werden. Schlägt Sparrow fehl oder liefert es keine gültige
+Anordnung, fällt die Berechnung automatisch auf die eigene Heuristik zurück.
 
 ## Aufbau
 
@@ -115,7 +131,7 @@ unterschiedlichen Lösungen wird dies gekennzeichnet.
 - `cutmodel.py`: transparentes Schnittkostenmodell (Annahmen, Segmente, Plan)
 - `plot.py`: interaktive Tkinter-Zeichenfläche und Hover-Erkennung
 - `partdraw.py`: scrollbare Einzelteil-Zeichnungen und Großansicht
-- `nesting.py`: Polygon-Nesting-Engine (4 Phasen, Gruppen, Pareto, Top-3)
+- `nesting.py`: Polygon-Nesting-Engine (4 Phasen, Gruppen, Pareto, Top-5)
 - `plateplanning.py`: Plattenplanungsfenster mit Live-Ansicht und Ergebniswahl
 - `ui.py`: Fenster, Eingaben, Einzelteil-Seitenleiste, Einstellungen, Updates
 - `updater.py`: Release-Prüfung, Download, Prüfsumme und MSI-Installation
