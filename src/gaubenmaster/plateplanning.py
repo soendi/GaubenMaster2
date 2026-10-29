@@ -199,6 +199,10 @@ class PlatePlanningWindow(tk.Toplevel):
             controls, text="Berechnen", command=self._start_search
         )
         self._start_button.grid(row=0, column=5, sticky="e", padx=(0, 8))
+        self._pdf_export_button = ttk.Button(
+            controls, text="PDF exportieren...", command=self.export_pdf
+        )
+        self._pdf_export_button.grid(row=0, column=7, sticky="e", padx=(4, 8))
         self._cancel_button = ttk.Button(
             controls,
             text="Abbrechen",
